@@ -14,10 +14,10 @@ export class ClaudeChatSettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
-		containerEl.createEl('h2', { text: 'Claude Chat Settings' });
+		containerEl.createEl('h2', { text: 'Obsidian Agent Settings' });
 
 		containerEl.createEl('p', {
-			text: 'Configure your Anthropic API key to start chatting with Claude.',
+			text: 'Configure your Anthropic API key to use your AI agent powered by Claude.',
 			cls: 'setting-item-description'
 		});
 
@@ -50,5 +50,72 @@ export class ClaudeChatSettingTab extends PluginSettingTab {
 			text: 'Note: Your API key is stored locally and only used to communicate with the Anthropic API.',
 			cls: 'mod-warning'
 		});
+
+		// LangSmith section
+		containerEl.createEl('h2', { text: 'LangSmith Tracing (Optional)' });
+
+		containerEl.createEl('p', {
+			text: 'Enable LangSmith to track and monitor your agent conversations, tool calls, and LLM interactions.',
+			cls: 'setting-item-description'
+		});
+
+		new Setting(containerEl)
+			.setName('Enable LangSmith Tracing')
+			.setDesc('Turn on tracing to monitor agent behavior and debug issues')
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.langsmithEnabled)
+					.onChange(async (value) => {
+						this.plugin.settings.langsmithEnabled = value;
+						await this.plugin.saveSettings();
+						// Refresh display to show/hide other settings
+						this.display();
+					})
+			);
+
+		if (this.plugin.settings.langsmithEnabled) {
+			new Setting(containerEl)
+				.setName('LangSmith API Key')
+				.setDesc(
+					createFragment((frag) => {
+						frag.appendText('Enter your LangSmith API key. Get one at ');
+						frag.createEl('a', {
+							text: 'smith.langchain.com',
+							href: 'https://smith.langchain.com/settings'
+						});
+					})
+				)
+				.addText((text) =>
+					text
+						.setPlaceholder('lsv2_pt_...')
+						.setValue(this.plugin.settings.langsmithApiKey)
+						.onChange(async (value) => {
+							this.plugin.settings.langsmithApiKey = value;
+							await this.plugin.saveSettings();
+						})
+				)
+				.then((setting) => {
+					// Make the input a password field
+					setting.controlEl.querySelector('input')?.setAttribute('type', 'password');
+				});
+
+			new Setting(containerEl)
+				.setName('LangSmith Project')
+				.setDesc('Project name for organizing traces (defaults to "obsidian-agent")')
+				.addText((text) =>
+					text
+						.setPlaceholder('obsidian-agent')
+						.setValue(this.plugin.settings.langsmithProject)
+						.onChange(async (value) => {
+							this.plugin.settings.langsmithProject = value || 'obsidian-agent';
+							await this.plugin.saveSettings();
+						})
+				);
+
+			containerEl.createEl('p', {
+				text: 'View your traces at: https://smith.langchain.com',
+				cls: 'mod-success'
+			});
+		}
 	}
 }

@@ -28,6 +28,12 @@
     "typescript": "5.3.3"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.1"
+    "@anthropic-ai/sdk": "^0.68.0",
+    "@langchain/core": "^1.0.2",
+    "@langchain/langgraph": "^1.0.1",
+    "langchain": "^1.0.2",
+    "langsmith": "^0.2.0",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.24.6"
   }
 }

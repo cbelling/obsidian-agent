@@ -2,13 +2,34 @@ import { Plugin } from 'obsidian';
 import { ChatView } from './ChatView';
 import { ClaudeChatSettingTab } from './settings';
 import { ClaudeChatSettings, DEFAULT_SETTINGS, VIEW_TYPE_CHAT } from './types';
+import { VaultService } from './vault/VaultService';
+import { CheckpointService } from './checkpoint/CheckpointService';
 
 export default class ClaudeChatPlugin extends Plugin {
 	settings: ClaudeChatSettings;
 	private chatView: ChatView | null = null;
+	public vaultService: VaultService | null = null;
+	public checkpointService: CheckpointService | null = null;
 
 	async onload() {
 		await this.loadSettings();
+
+		// Configure Langsmith if enabled
+		if (this.settings.langsmithEnabled && this.settings.langsmithApiKey) {
+			process.env.LANGSMITH_TRACING = "true";
+			process.env.LANGSMITH_API_KEY = this.settings.langsmithApiKey;
+			process.env.LANGSMITH_PROJECT = this.settings.langsmithProject || "obsidian-agent";
+			process.env.LANGSMITH_ENDPOINT = "https://api.smith.langchain.com";
+			console.log('[Plugin] Langsmith tracing enabled for project:', this.settings.langsmithProject);
+		} else {
+			process.env.LANGSMITH_TRACING = "false";
+		}
+
+		// Initialize VaultService
+		this.vaultService = new VaultService(this.app);
+
+		// Initialize CheckpointService for conversation persistence
+		this.checkpointService = new CheckpointService(this.app, "obsidian-agent");
 
 		// Register the chat view
 		this.registerView(
@@ -20,14 +41,14 @@ export default class ClaudeChatPlugin extends Plugin {
 		);
 
 		// Add ribbon icon to open chat
-		this.addRibbonIcon('message-circle', 'Open Claude Chat', () => {
+		this.addRibbonIcon('message-circle', 'Open Obsidian Agent', () => {
 			this.activateView();
 		});
 
 		// Add command to open chat
 		this.addCommand({
-			id: 'open-claude-chat',
-			name: 'Open Claude Chat',
+			id: 'open-obsidian-agent',
+			name: 'Open Obsidian Agent',
 			callback: () => {
 				this.activateView();
 			}
@@ -73,6 +94,18 @@ export default class ClaudeChatPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+
+		// Reconfigure Langsmith when settings change
+		if (this.settings.langsmithEnabled && this.settings.langsmithApiKey) {
+			process.env.LANGSMITH_TRACING = "true";
+			process.env.LANGSMITH_API_KEY = this.settings.langsmithApiKey;
+			process.env.LANGSMITH_PROJECT = this.settings.langsmithProject || "obsidian-agent";
+			process.env.LANGSMITH_ENDPOINT = "https://api.smith.langchain.com";
+			console.log('[Plugin] Langsmith tracing enabled for project:', this.settings.langsmithProject);
+		} else {
+			process.env.LANGSMITH_TRACING = "false";
+			console.log('[Plugin] Langsmith tracing disabled');
+		}
 
 		// Update API key in chat view if it exists
 		if (this.chatView) {

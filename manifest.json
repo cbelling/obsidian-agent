@@ -1,9 +1,9 @@
 {
-  "id": "claude-chat",
-  "name": "Claude Chat",
-  "version": "0.1.0",
+  "id": "obsidian-agent",
+  "name": "Obsidian Agent",
+  "version": "1.0.0",
   "minAppVersion": "0.15.0",
-  "description": "Chat with Claude AI directly in Obsidian",
+  "description": "AI agent powered by Claude that can search and interact with your vault",
   "author": "Charles Bellinger",
   "authorUrl": "https://github.com/charlesbellinger",
   "isDesktopOnly": false

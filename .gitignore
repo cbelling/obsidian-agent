@@ -21,3 +21,7 @@ Thumbs.db
 
 # Obsidian
 data.json
+
+# Plugin runtime data (checkpoints and threads)
+checkpoints/
+threads.json
