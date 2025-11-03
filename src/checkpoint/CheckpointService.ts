@@ -522,4 +522,118 @@ export class CheckpointService extends BaseCheckpointSaver {
 			await this.saveThreadsMetadata();
 		}
 	}
+
+	/**
+	 * Prune old checkpoints based on retention policy
+	 */
+	async pruneOldCheckpoints(retentionDays: number): Promise<number> {
+		const now = Date.now();
+		const cutoff = now - (retentionDays * 24 * 60 * 60 * 1000);
+		let deletedCount = 0;
+
+		try {
+			const threads = Array.from(this.threadsMetadata.values());
+
+			for (const thread of threads) {
+				if (thread.updatedAt < cutoff) {
+					await this.deleteThread(thread.threadId);
+					deletedCount++;
+					console.log(`[CheckpointService] Deleted old thread: ${thread.threadId} (${thread.title})`);
+				}
+			}
+
+			if (deletedCount > 0) {
+				console.log(`[CheckpointService] Pruned ${deletedCount} old conversations`);
+			}
+
+			return deletedCount;
+		} catch (error) {
+			console.error('[CheckpointService] Error pruning old checkpoints:', error);
+			return deletedCount;
+		}
+	}
+
+	/**
+	 * Trim conversation history to max size
+	 */
+	async trimConversationHistory(threadId: string, maxHistorySize: number): Promise<boolean> {
+		try {
+			const checkpoints = await this.listCheckpoints(threadId);
+
+			if (checkpoints.length === 0) {
+				return false;
+			}
+
+			// Get the latest checkpoint
+			const latest = checkpoints[0];
+			const messages = latest.checkpoint.channel_values?.messages;
+
+			if (!Array.isArray(messages) || messages.length <= maxHistorySize) {
+				return false;
+			}
+
+			// Keep only the most recent messages
+			const trimmedMessages = messages.slice(-maxHistorySize);
+
+			// Create a new checkpoint with trimmed messages
+			const trimmedCheckpoint = {
+				...latest.checkpoint,
+				channel_values: {
+					...latest.checkpoint.channel_values,
+					messages: trimmedMessages
+				}
+			};
+
+			// Save the trimmed checkpoint
+			await this.putTuple(
+				latest.config,
+				trimmedCheckpoint,
+				latest.metadata || { source: "update", step: 0, parents: {} }
+			);
+
+			console.log(`[CheckpointService] Trimmed conversation history for thread ${threadId}: ${messages.length} -> ${trimmedMessages.length} messages`);
+
+			return true;
+		} catch (error) {
+			console.error(`[CheckpointService] Error trimming conversation history for thread ${threadId}:`, error);
+			return false;
+		}
+	}
+
+	/**
+	 * Get statistics about stored data
+	 */
+	async getStorageStats(): Promise<{
+		totalThreads: number;
+		totalCheckpoints: number;
+		oldestThread: number | null;
+		newestThread: number | null;
+	}> {
+		try {
+			const threads = Array.from(this.threadsMetadata.values());
+			let totalCheckpoints = 0;
+
+			for (const thread of threads) {
+				const checkpoints = await this.listCheckpoints(thread.threadId);
+				totalCheckpoints += checkpoints.length;
+			}
+
+			const sortedThreads = threads.sort((a, b) => a.updatedAt - b.updatedAt);
+
+			return {
+				totalThreads: threads.length,
+				totalCheckpoints,
+				oldestThread: sortedThreads.length > 0 ? sortedThreads[0].updatedAt : null,
+				newestThread: sortedThreads.length > 0 ? sortedThreads[sortedThreads.length - 1].updatedAt : null
+			};
+		} catch (error) {
+			console.error('[CheckpointService] Error getting storage stats:', error);
+			return {
+				totalThreads: 0,
+				totalCheckpoints: 0,
+				oldestThread: null,
+				newestThread: null
+			};
+		}
+	}
 }

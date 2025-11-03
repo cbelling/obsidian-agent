@@ -31,6 +31,11 @@ export default class ClaudeChatPlugin extends Plugin {
 		// Initialize CheckpointService for conversation persistence
 		this.checkpointService = new CheckpointService(this.app, "obsidian-agent");
 
+		// Run automatic cleanup if enabled
+		if (this.settings.enableAutoCleanup) {
+			this.runAutoCleanup();
+		}
+
 		// Register the chat view
 		this.registerView(
 			VIEW_TYPE_CHAT,
@@ -110,6 +115,40 @@ export default class ClaudeChatPlugin extends Plugin {
 		// Update API key in chat view if it exists
 		if (this.chatView) {
 			this.chatView.updateApiKey(this.settings.apiKey);
+		}
+	}
+
+	/**
+	 * Run automatic cleanup of old conversations
+	 */
+	private async runAutoCleanup() {
+		if (!this.checkpointService) {
+			return;
+		}
+
+		try {
+			console.log('[Plugin] Running automatic cleanup...');
+
+			// Get storage stats before cleanup
+			const statsBefore = await this.checkpointService.getStorageStats();
+			console.log('[Plugin] Storage stats before cleanup:', statsBefore);
+
+			// Prune old checkpoints
+			const deletedCount = await this.checkpointService.pruneOldCheckpoints(
+				this.settings.retentionDays
+			);
+
+			// Get storage stats after cleanup
+			const statsAfter = await this.checkpointService.getStorageStats();
+			console.log('[Plugin] Storage stats after cleanup:', statsAfter);
+
+			if (deletedCount > 0) {
+				console.log(`[Plugin] Automatic cleanup completed: deleted ${deletedCount} old conversations`);
+			} else {
+				console.log('[Plugin] No old conversations to clean up');
+			}
+		} catch (error) {
+			console.error('[Plugin] Error during automatic cleanup:', error);
 		}
 	}
 }

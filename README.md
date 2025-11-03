@@ -10,21 +10,19 @@ An AI agent powered by Claude that lives in your Obsidian workspace. This plugin
 - 🔍 **Vault Integration**: Claude can search and read your notes (with AI agent tools)
 - 🎨 **Native Design**: Matches Obsidian's theme (light/dark mode)
 - ✨ **Markdown Support**: Full markdown rendering in responses
-- 🔒 **Privacy First**: API key stored locally, direct communication with Anthropic
+- 🔒 **Privacy First**: API key stored securely, direct communication with Anthropic
 - 🧹 **Clean Interface**: Simple, distraction-free chat experience
+- 🛡️ **Error Handling**: Automatic retry with exponential backoff for network issues
+- ⚡ **Rate Limiting**: Built-in protection against API rate limits
+- 🧪 **LangSmith Integration**: Optional tracing for debugging (graceful degradation)
+- 📊 **Data Retention**: Configurable automatic cleanup of old conversations
 
 ## Installation
 
-### Manual Installation
-
-1. Download the latest release from the [releases page](https://github.com/charlesbellinger/obsidian-agent/releases)
+1. Download the latest release from the releases page
 2. Extract the files to your vault's plugins folder: `<vault>/.obsidian/plugins/obsidian-agent/`
 3. Reload Obsidian
 4. Enable "Obsidian Agent" in Settings → Community Plugins
-
-### Development Installation
-
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for detailed development setup and contribution guidelines.
 
 ## Setup
 
@@ -90,77 +88,6 @@ Your agent can help you with your notes:
 - Conversations are stored locally in your vault's `.obsidian` folder
 - All data remains on your device
 
-## API Costs
-
-This plugin uses the Claude 3.5 Sonnet model. Costs are:
-- Input: $3 per million tokens
-- Output: $15 per million tokens
-
-Typical usage:
-- Short conversation: ~$0.01-0.05
-- Long conversation: ~$0.10-0.50
-
-For current pricing, visit [anthropic.com/pricing](https://www.anthropic.com/pricing)
-
-## Roadmap
-
-This is V1 with core functionality. Future features planned:
-
-- ✅ ~~Vault integration (read/search notes)~~ - **Implemented!**
-- ✅ ~~Conversation persistence~~ - **Implemented!**
-- ✅ ~~Multiple conversation threads~~ - **Implemented!**
-- 🔜 Thread deletion and management
-- 🔜 Smart thread titles (auto-generated from first message)
-- 🔜 Export conversations
-- 🔜 Custom prompts and templates
-- 🔜 Semantic search
-- 🔜 Note creation/editing tools
-
-See [docs/VISION.md](docs/VISION.md) for the complete roadmap.
-
-## Troubleshooting
-
-### Plugin doesn't appear
-- Ensure you've enabled the plugin in Settings → Community Plugins
-- Try reloading Obsidian (Cmd/Ctrl + R)
-
-### "Please configure your API key" error
-- Open Settings → Claude Chat
-- Paste your Anthropic API key
-- Ensure there are no extra spaces
-
-### "API Error" messages
-- Check your API key is valid
-- Ensure you have credits in your Anthropic account
-- Check your internet connection
-
-### Messages not appearing
-- Check the browser console for errors (Cmd/Ctrl + Shift + I)
-- Try clearing the conversation and starting fresh
-
-## Development
-
-Want to contribute or customize the plugin? Check out our comprehensive development guide:
-
-**[Development Guide →](docs/DEVELOPMENT.md)**
-
-Includes:
-- Setup instructions
-- Project structure
-- Code style guidelines
-- Testing checklist
-- Debugging tips
-
-### Quick Start for Developers
-
-```bash
-git clone <repo-url>
-cd chat-plugin
-npm install
-npm run dev
-```
-
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for details.
 
 ## Support
 
@@ -174,27 +101,6 @@ MIT License - see [LICENSE](LICENSE) for details
 
 ## Acknowledgments
 
-- Built with [Obsidian API](https://github.com/obsidianmd/obsidian-api)
-- Powered by [Claude](https://www.anthropic.com/claude) by Anthropic
+- Built with Obsidian API
+- Powered by Claude by Anthropic
 - Inspired by the Obsidian community
-
----
-
-## Changelog
-
-### v1.0.0 (2025)
-- 🎉 V1 Release - Production ready!
-- 💾 Persistent conversation storage
-- 🗂️ Multiple conversation threads with navigation
-- 🔍 Vault integration (search, read files, metadata)
-- 🤖 AI agent with tool use
-- ✨ Thread list view
-- 🎨 Enhanced UI with thread management
-- 🔧 Backward compatibility with old checkpoint formats
-
-### v0.1.0 (MVP)
-- Initial prototype release
-- Basic chat interface
-- Claude 3.5 Sonnet integration
-- Markdown rendering
-- Theme support (light/dark)

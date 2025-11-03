@@ -117,5 +117,60 @@ export class ClaudeChatSettingTab extends PluginSettingTab {
 				cls: 'mod-success'
 			});
 		}
+
+		// Data retention section
+		containerEl.createEl('h2', { text: 'Data Retention' });
+
+		containerEl.createEl('p', {
+			text: 'Configure how long conversation history is stored and when old data is automatically cleaned up.',
+			cls: 'setting-item-description'
+		});
+
+		new Setting(containerEl)
+			.setName('Enable Auto Cleanup')
+			.setDesc('Automatically delete old conversations based on retention settings')
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.enableAutoCleanup)
+					.onChange(async (value) => {
+						this.plugin.settings.enableAutoCleanup = value;
+						await this.plugin.saveSettings();
+						this.display();
+					})
+			);
+
+		if (this.plugin.settings.enableAutoCleanup) {
+			new Setting(containerEl)
+				.setName('Retention Period (Days)')
+				.setDesc('Delete conversations older than this many days (1-365)')
+				.addText((text) =>
+					text
+						.setPlaceholder('30')
+						.setValue(String(this.plugin.settings.retentionDays))
+						.onChange(async (value) => {
+							const days = parseInt(value);
+							if (!isNaN(days) && days >= 1 && days <= 365) {
+								this.plugin.settings.retentionDays = days;
+								await this.plugin.saveSettings();
+							}
+						})
+				);
+
+			new Setting(containerEl)
+				.setName('Max History Size')
+				.setDesc('Maximum number of messages to keep per conversation (10-1000)')
+				.addText((text) =>
+					text
+						.setPlaceholder('100')
+						.setValue(String(this.plugin.settings.maxHistorySize))
+						.onChange(async (value) => {
+							const size = parseInt(value);
+							if (!isNaN(size) && size >= 10 && size <= 1000) {
+								this.plugin.settings.maxHistorySize = size;
+								await this.plugin.saveSettings();
+							}
+						})
+				);
+		}
 	}
 }

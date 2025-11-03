@@ -9,13 +9,20 @@ export interface ClaudeChatSettings {
 	langsmithApiKey: string;
 	langsmithProject: string;
 	langsmithEnabled: boolean;
+	// Data retention settings
+	retentionDays: number;
+	maxHistorySize: number;
+	enableAutoCleanup: boolean;
 }
 
 export const DEFAULT_SETTINGS: ClaudeChatSettings = {
 	apiKey: '',
 	langsmithApiKey: '',
 	langsmithProject: 'obsidian-agent',
-	langsmithEnabled: false
+	langsmithEnabled: false,
+	retentionDays: 30,
+	maxHistorySize: 100,
+	enableAutoCleanup: true
 };
 
 export const VIEW_TYPE_CHAT = 'claude-chat-view';

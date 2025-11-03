@@ -13,6 +13,9 @@ import { DynamicStructuredTool } from "@langchain/core/tools";
 import { CheckpointService } from "../checkpoint/CheckpointService";
 import { wrapSDK } from "langsmith/wrappers";
 import { traceable } from "langsmith/traceable";
+import { ErrorHandler, AgentError, ErrorCode } from "../errors/ErrorHandler";
+import { RetryHandler } from "../errors/RetryHandler";
+import { RateLimiters } from "../errors/RateLimiter";
 
 /**
  * Agent System Prompt
@@ -70,15 +73,35 @@ export class ObsidianAgent {
 		this.checkpointer = checkpointer;
 		this.langsmithEnabled = langsmithEnabled;
 
+		// Validate API key
+		if (!apiKey || !apiKey.startsWith('sk-ant-')) {
+			throw new AgentError(
+				'Invalid API key format. API key must start with "sk-ant-"',
+				ErrorCode.API_KEY_INVALID,
+				undefined,
+				false
+			);
+		}
+
 		const baseAnthropic = new Anthropic({
 			apiKey,
 			dangerouslyAllowBrowser: true // Required for Obsidian (Electron environment)
 		});
 
 		// Wrap Anthropic SDK with Langsmith tracing if enabled
-		this.anthropic = this.langsmithEnabled
-			? wrapSDK(baseAnthropic)
-			: baseAnthropic;
+		// If LangSmith fails, gracefully degrade to non-traced SDK
+		if (this.langsmithEnabled) {
+			try {
+				this.anthropic = wrapSDK(baseAnthropic);
+				console.log('[Obsidian Agent] LangSmith tracing enabled');
+			} catch (error) {
+				console.warn('[Obsidian Agent] LangSmith initialization failed, continuing without tracing:', error);
+				this.anthropic = baseAnthropic;
+				this.langsmithEnabled = false; // Disable for this session
+			}
+		} else {
+			this.anthropic = baseAnthropic;
+		}
 
 		this.agent = this.buildAgent();
 	}
@@ -89,77 +112,113 @@ export class ObsidianAgent {
 
 		// Define agent logic - calls Anthropic API
 		const callAgentBase = async (state: AgentStateType) => {
-			// Prepare messages - convert BaseMessage to Anthropic format
-			const anthropicMessages: Array<{ role: "user" | "assistant"; content: string }> = state.messages.map((msg) => {
-				if (msg instanceof HumanMessage) {
-					return { role: "user" as const, content: msg.content as string };
-				} else if (msg instanceof AIMessage) {
+			try {
+				// Apply rate limiting
+				await RateLimiters.ANTHROPIC_API.removeTokens(1);
+
+				// Prepare messages - convert BaseMessage to Anthropic format
+				const anthropicMessages: Array<{ role: "user" | "assistant"; content: string }> = state.messages.map((msg) => {
+					if (msg instanceof HumanMessage) {
+						return { role: "user" as const, content: msg.content as string };
+					} else if (msg instanceof AIMessage) {
+						return {
+							role: "assistant" as const,
+							content: msg.content as string,
+						};
+					}
+					return { role: "user" as const, content: String(msg.content) };
+				});
+
+				// Call Anthropic API with retry logic
+				// Convert tools to Anthropic format with proper JSON Schema
+				const anthropicTools = this.tools.map((t) => {
+					// t.schema is already a JSON Schema from LangChain tools
+					const jsonSchema = t.schema as any;
+
+					// Ensure the schema has the required 'type' field
+					if (!jsonSchema.type) {
+						jsonSchema.type = 'object';
+					}
+
 					return {
-						role: "assistant" as const,
-						content: msg.content as string,
+						name: t.name,
+						description: t.description,
+						input_schema: jsonSchema,
 					};
+				});
+
+				const response = await RetryHandler.withRetry(
+					async () => {
+						return await this.anthropic.messages.create({
+							model: "claude-sonnet-4-5-20250929",
+							max_tokens: 4096,
+							system: AGENT_SYSTEM_PROMPT, // System prompt goes here, not in messages
+							messages: anthropicMessages,
+							tools: anthropicTools,
+						});
+					},
+					{
+						maxAttempts: 3,
+						baseDelay: 1000,
+						maxDelay: 30000,
+						onRetry: (error, attempt, nextDelay) => {
+							console.log(`[Obsidian Agent] API call failed (attempt ${attempt}), retrying in ${nextDelay}ms:`, error.code);
+						}
+					}
+				);
+
+				// Convert response to AIMessage
+				let content = "";
+				let toolCalls: any[] = [];
+
+				for (const block of response.content) {
+					if (block.type === "text") {
+						content += block.text;
+					} else if (block.type === "tool_use") {
+						toolCalls.push({
+							name: block.name,
+							args: block.input,
+							id: block.id,
+						});
+					}
 				}
-				return { role: "user" as const, content: String(msg.content) };
-			});
 
-			// Call Anthropic API
-			// Convert tools to Anthropic format with proper JSON Schema
-			const anthropicTools = this.tools.map((t) => {
-				// t.schema is already a JSON Schema from LangChain tools
-				const jsonSchema = t.schema as any;
+				const aiMessage = new AIMessage({
+					content: content || "Thinking...",
+					tool_calls: toolCalls,
+				});
 
-				// Ensure the schema has the required 'type' field
-				if (!jsonSchema.type) {
-					jsonSchema.type = 'object';
-				}
+				return { messages: [aiMessage] };
+			} catch (error) {
+				// Handle and wrap error
+				const agentError = ErrorHandler.handle(error);
+				ErrorHandler.log(agentError);
 
-				return {
-					name: t.name,
-					description: t.description,
-					input_schema: jsonSchema,
-				};
-			});
+				// Return error message to user
+				const errorMessage = new AIMessage({
+					content: `I encountered an error: ${agentError.getUserMessage()}`,
+					tool_calls: [],
+				});
 
-			const response = await this.anthropic.messages.create({
-				model: "claude-sonnet-4-5-20250929",
-				max_tokens: 4096,
-				system: AGENT_SYSTEM_PROMPT, // System prompt goes here, not in messages
-				messages: anthropicMessages,
-				tools: anthropicTools,
-			});
-
-			// Convert response to AIMessage
-			let content = "";
-			let toolCalls: any[] = [];
-
-			for (const block of response.content) {
-				if (block.type === "text") {
-					content += block.text;
-				} else if (block.type === "tool_use") {
-					toolCalls.push({
-						name: block.name,
-						args: block.input,
-						id: block.id,
-					});
-				}
+				return { messages: [errorMessage] };
 			}
-
-			const aiMessage = new AIMessage({
-				content: content || "Thinking...",
-				tool_calls: toolCalls,
-			});
-
-			return { messages: [aiMessage] };
 		};
 
 		// Wrap with traceable if Langsmith is enabled
-		const callAgent = this.langsmithEnabled
-			? traceable(callAgentBase, {
-				name: "obsidian_agent_call",
-				run_type: "llm",
-				tags: ["obsidian", "agent", "claude"]
-			})
-			: callAgentBase;
+		// If tracing fails, gracefully degrade to non-traced execution
+		let callAgent = callAgentBase;
+		if (this.langsmithEnabled) {
+			try {
+				callAgent = traceable(callAgentBase, {
+					name: "obsidian_agent_call",
+					run_type: "llm",
+					tags: ["obsidian", "agent", "claude"]
+				});
+			} catch (error) {
+				console.warn('[Obsidian Agent] LangSmith traceable wrapper failed, continuing without tracing:', error);
+				callAgent = callAgentBase;
+			}
+		}
 
 		// Routing logic - determine if we should continue with tools or end
 		const shouldContinue = (state: AgentStateType): "tools" | typeof END => {
