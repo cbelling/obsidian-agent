@@ -31,14 +31,22 @@ const context = await esbuild.context({
 		'@lezer/common',
 		'@lezer/highlight',
 		'@lezer/lr',
-		'node:async_hooks',
-		...builtins],
+		// Don't externalize node:async_hooks - let it be bundled and polyfilled
+		...builtins.filter(m => m !== 'async_hooks')],
 	format: 'cjs',
 	target: 'es2018',
 	logLevel: "info",
 	sourcemap: prod ? false : 'inline',
 	treeShaking: true,
 	outfile: 'main.js',
+	// Add polyfill for node:async_hooks on mobile
+	define: {
+		'process.env.NODE_ENV': prod ? '"production"' : '"development"',
+	},
+	alias: {
+		// Provide empty polyfill for node:async_hooks
+		'node:async_hooks': './src/polyfills/async-hooks-stub.ts',
+	},
 });
 
 if (prod) {
