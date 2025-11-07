@@ -1,13 +1,11 @@
-import { StateGraph, START, END } from "@langchain/langgraph";
+import { StateGraph, START, END, CompiledStateGraph } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { Anthropic } from "@anthropic-ai/sdk";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import { AgentState, AgentStateType } from "./AgentState";
 import {
 	AIMessage,
 	BaseMessage,
 	HumanMessage,
-	SystemMessage,
 } from "@langchain/core/messages";
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { CheckpointService } from "../checkpoint/CheckpointService";
@@ -16,6 +14,17 @@ import { traceable } from "langsmith/traceable";
 import { ErrorHandler, AgentError, ErrorCode } from "../errors/ErrorHandler";
 import { RetryHandler } from "../errors/RetryHandler";
 import { RateLimiters } from "../errors/RateLimiter";
+
+/**
+ * Configuration constants for the agent
+ */
+const AGENT_CONFIG = {
+	MODEL: "claude-sonnet-4-5-20250929",
+	MAX_TOKENS: 4096,
+	RETRY_ATTEMPTS: 3,
+	RETRY_BASE_DELAY: 1000,
+	RETRY_MAX_DELAY: 30000,
+} as const;
 
 /**
  * Agent System Prompt
@@ -50,12 +59,33 @@ CONTEXT:
 `;
 
 /**
- * Create Agent Graph
+ * Anthropic message format
+ */
+interface AnthropicMessage {
+	role: "user" | "assistant";
+	content: string;
+}
+
+/**
+ * Anthropic tool format - matches Anthropic API Tool type
+ */
+interface AnthropicTool {
+	name: string;
+	description: string;
+	input_schema: {
+		type: string;
+		[key: string]: any;
+	};
+}
+
+/**
+ * ObsidianAgent
  *
- * Builds the LangGraph agent with the defined state schema, tools, and logic
+ * LangGraph-powered agent with the Anthropic SDK for conversational AI in Obsidian.
+ * Handles tool execution, state management, error handling, and optional LangSmith tracing.
  */
 export class ObsidianAgent {
-	private agent: any;
+	private agent: CompiledStateGraph<AgentStateType, Partial<AgentStateType>, "__start__" | "agent" | "tools">;
 	private anthropic: Anthropic;
 	private apiKey: string;
 	private tools: DynamicStructuredTool[];
@@ -106,6 +136,66 @@ export class ObsidianAgent {
 		this.agent = this.buildAgent();
 	}
 
+	/**
+	 * Convert LangChain BaseMessage to Anthropic message format
+	 */
+	private convertToAnthropicMessages(messages: BaseMessage[]): AnthropicMessage[] {
+		return messages.map((msg) => {
+			if (msg instanceof HumanMessage) {
+				return { role: "user" as const, content: msg.content as string };
+			} else if (msg instanceof AIMessage) {
+				return { role: "assistant" as const, content: msg.content as string };
+			}
+			// Fallback for other message types
+			return { role: "user" as const, content: String(msg.content) };
+		});
+	}
+
+	/**
+	 * Convert LangChain tools to Anthropic tool format
+	 */
+	private convertToAnthropicTools(tools: DynamicStructuredTool[]): AnthropicTool[] {
+		return tools.map((tool) => {
+			const jsonSchema = tool.schema as any;
+
+			// Ensure the schema has the required 'type' field
+			if (!jsonSchema.type) {
+				jsonSchema.type = 'object';
+			}
+
+			return {
+				name: tool.name,
+				description: tool.description,
+				input_schema: jsonSchema,
+			};
+		});
+	}
+
+	/**
+	 * Parse Anthropic API response into LangChain AIMessage
+	 */
+	private parseAnthropicResponse(response: Anthropic.Message): AIMessage {
+		let content = "";
+		const toolCalls: any[] = [];
+
+		for (const block of response.content) {
+			if (block.type === "text") {
+				content += block.text;
+			} else if (block.type === "tool_use") {
+				toolCalls.push({
+					name: block.name,
+					args: block.input,
+					id: block.id,
+				});
+			}
+		}
+
+		return new AIMessage({
+			content: content || "Thinking...",
+			tool_calls: toolCalls,
+		});
+	}
+
 	private buildAgent() {
 		// Create tool node
 		const toolNode = new ToolNode<AgentStateType>(this.tools);
@@ -116,77 +206,33 @@ export class ObsidianAgent {
 				// Apply rate limiting
 				await RateLimiters.ANTHROPIC_API.removeTokens(1);
 
-				// Prepare messages - convert BaseMessage to Anthropic format
-				const anthropicMessages: Array<{ role: "user" | "assistant"; content: string }> = state.messages.map((msg) => {
-					if (msg instanceof HumanMessage) {
-						return { role: "user" as const, content: msg.content as string };
-					} else if (msg instanceof AIMessage) {
-						return {
-							role: "assistant" as const,
-							content: msg.content as string,
-						};
-					}
-					return { role: "user" as const, content: String(msg.content) };
-				});
+				// Convert messages and tools to Anthropic format
+				const anthropicMessages = this.convertToAnthropicMessages(state.messages);
+				const anthropicTools = this.convertToAnthropicTools(this.tools);
 
 				// Call Anthropic API with retry logic
-				// Convert tools to Anthropic format with proper JSON Schema
-				const anthropicTools = this.tools.map((t) => {
-					// t.schema is already a JSON Schema from LangChain tools
-					const jsonSchema = t.schema as any;
-
-					// Ensure the schema has the required 'type' field
-					if (!jsonSchema.type) {
-						jsonSchema.type = 'object';
-					}
-
-					return {
-						name: t.name,
-						description: t.description,
-						input_schema: jsonSchema,
-					};
-				});
-
 				const response = await RetryHandler.withRetry(
 					async () => {
 						return await this.anthropic.messages.create({
-							model: "claude-sonnet-4-5-20250929",
-							max_tokens: 4096,
-							system: AGENT_SYSTEM_PROMPT, // System prompt goes here, not in messages
+							model: AGENT_CONFIG.MODEL,
+							max_tokens: AGENT_CONFIG.MAX_TOKENS,
+							system: AGENT_SYSTEM_PROMPT,
 							messages: anthropicMessages,
-							tools: anthropicTools,
+							tools: anthropicTools as any, // Cast needed due to Anthropic SDK type complexity
 						});
 					},
 					{
-						maxAttempts: 3,
-						baseDelay: 1000,
-						maxDelay: 30000,
+						maxAttempts: AGENT_CONFIG.RETRY_ATTEMPTS,
+						baseDelay: AGENT_CONFIG.RETRY_BASE_DELAY,
+						maxDelay: AGENT_CONFIG.RETRY_MAX_DELAY,
 						onRetry: (error, attempt, nextDelay) => {
 							console.log(`[Obsidian Agent] API call failed (attempt ${attempt}), retrying in ${nextDelay}ms:`, error.code);
 						}
 					}
 				);
 
-				// Convert response to AIMessage
-				let content = "";
-				let toolCalls: any[] = [];
-
-				for (const block of response.content) {
-					if (block.type === "text") {
-						content += block.text;
-					} else if (block.type === "tool_use") {
-						toolCalls.push({
-							name: block.name,
-							args: block.input,
-							id: block.id,
-						});
-					}
-				}
-
-				const aiMessage = new AIMessage({
-					content: content || "Thinking...",
-					tool_calls: toolCalls,
-				});
+				// Parse response into AIMessage
+				const aiMessage = this.parseAnthropicResponse(response);
 
 				return { messages: [aiMessage] };
 			} catch (error) {
@@ -247,8 +293,9 @@ export class ObsidianAgent {
 	/**
 	 * Invoke the agent with a message
 	 */
-	async invoke(input: { messages: BaseMessage[] }, config?: any) {
-		return await this.agent.invoke(input, config);
+	async invoke(input: { messages: BaseMessage[] }, config?: any): Promise<AgentStateType> {
+		const result = await this.agent.invoke(input, config);
+		return result as AgentStateType;
 	}
 
 	/**

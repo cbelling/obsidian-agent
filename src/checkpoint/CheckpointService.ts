@@ -7,6 +7,16 @@ type ChannelVersion = number | string;
 type ChannelVersions = Record<string, ChannelVersion>;
 
 /**
+ * Constants for checkpoint file handling
+ */
+const CHECKPOINT_CONSTANTS = {
+	FILE_EXTENSION: '.json',
+	TEMP_SUFFIX: '.tmp',
+	WRITES_SUFFIX: '-writes.json',
+	METADATA_FILE: 'threads.json',
+} as const;
+
+/**
  * Thread metadata structure
  */
 export interface ThreadMetadata {
@@ -76,7 +86,26 @@ export class CheckpointService extends BaseCheckpointSaver {
 	 * Get threads metadata file path
 	 */
 	private getThreadsMetadataPath(): string {
-		return `${this.basePath}/threads.json`;
+		return `${this.basePath}/${CHECKPOINT_CONSTANTS.METADATA_FILE}`;
+	}
+
+	/**
+	 * Perform atomic write operation (write to temp file, then rename)
+	 */
+	private async atomicWrite(path: string, content: string): Promise<void> {
+		const adapter = this.app.vault.adapter;
+		const tempPath = `${path}${CHECKPOINT_CONSTANTS.TEMP_SUFFIX}`;
+
+		// Write to temp file
+		await adapter.write(tempPath, content);
+
+		// Remove existing file if it exists
+		if (await adapter.exists(path)) {
+			await adapter.remove(path);
+		}
+
+		// Rename temp to actual (atomic on most filesystems)
+		await adapter.rename(tempPath, path);
 	}
 
 	/**
@@ -109,17 +138,9 @@ export class CheckpointService extends BaseCheckpointSaver {
 		try {
 			const path = this.getThreadsMetadataPath();
 			const data = Array.from(this.threadsMetadata.values());
-			const adapter = this.app.vault.adapter;
+			const content = JSON.stringify(data, null, 2);
 
-			// Atomic write: write to temp file, then rename
-			const tempPath = `${path}.tmp`;
-			await adapter.write(tempPath, JSON.stringify(data, null, 2));
-
-			// Rename temp to actual (atomic on most filesystems)
-			if (await adapter.exists(path)) {
-				await adapter.remove(path);
-			}
-			await adapter.rename(tempPath, path);
+			await this.atomicWrite(path, content);
 		} catch (error) {
 			console.error("Error saving threads metadata:", error);
 		}
@@ -253,13 +274,7 @@ export class CheckpointService extends BaseCheckpointSaver {
 			};
 
 			// Atomic write
-			const tempPath = `${path}.tmp`;
-			await adapter.write(tempPath, JSON.stringify(data, null, 2));
-
-			if (await adapter.exists(path)) {
-				await adapter.remove(path);
-			}
-			await adapter.rename(tempPath, path);
+			await this.atomicWrite(path, JSON.stringify(data, null, 2));
 
 			// Update thread metadata
 			let threadMeta = this.threadsMetadata.get(threadId);
@@ -325,13 +340,7 @@ export class CheckpointService extends BaseCheckpointSaver {
 			allWrites[taskId] = writes;
 
 			// Atomic write
-			const tempPath = `${writesPath}.tmp`;
-			await adapter.write(tempPath, JSON.stringify(allWrites, null, 2));
-
-			if (await adapter.exists(writesPath)) {
-				await adapter.remove(writesPath);
-			}
-			await adapter.rename(tempPath, writesPath);
+			await this.atomicWrite(writesPath, JSON.stringify(allWrites, null, 2));
 		} catch (error) {
 			console.error("Error saving writes:", error);
 			throw error;

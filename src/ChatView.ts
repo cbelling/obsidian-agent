@@ -2,18 +2,18 @@ import { ItemView, WorkspaceLeaf, MarkdownRenderer, Notice } from 'obsidian';
 import { VIEW_TYPE_CHAT, Message } from './types';
 import ClaudeChatPlugin from './main';
 import { ObsidianAgent } from './agent/AgentGraph';
-import { HumanMessage } from "@langchain/core/messages";
+import { HumanMessage, BaseMessage } from "@langchain/core/messages";
 import { createVaultTools } from './vault/VaultTools';
+import { ConversationManager } from './state/ConversationManager';
 
 export class ChatView extends ItemView {
-	private messages: Message[] = [];
 	private agent: ObsidianAgent | null = null;
+	private conversationManager: ConversationManager | null = null;
 	private plugin: ClaudeChatPlugin;
 	private messagesContainer: HTMLElement | null = null;
 	private inputEl: HTMLTextAreaElement | null = null;
 	private sendButton: HTMLButtonElement | null = null;
 	private isLoading: boolean = false;
-	private threadId: string | null = null; // Current thread ID
 	private isThreadListView: boolean = false; // Toggle between thread list and chat view
 	private threadListContainer: HTMLElement | null = null;
 	private chatContainer: HTMLElement | null = null;
@@ -23,6 +23,13 @@ export class ChatView extends ItemView {
 	constructor(leaf: WorkspaceLeaf, plugin: ClaudeChatPlugin) {
 		super(leaf);
 		this.plugin = plugin;
+
+		// Initialize ConversationManager
+		if (plugin.conversationManager) {
+			this.conversationManager = plugin.conversationManager;
+		}
+
+		// Initialize Agent
 		if (plugin.settings.apiKey && plugin.vaultService && plugin.checkpointService) {
 			const vaultTools = createVaultTools(plugin.vaultService);
 			this.agent = new ObsidianAgent(
@@ -85,10 +92,10 @@ export class ChatView extends ItemView {
 		// Load existing conversation history
 		await this.loadConversationHistory();
 
-		// Show back button when in chat view (if there are threads)
-		if (this.plugin.checkpointService) {
-			const threads = this.plugin.checkpointService.listThreads();
-			if (threads.length > 0 && this.backButton) {
+		// Show back button when in chat view (if there are conversations)
+		if (this.conversationManager) {
+			const conversations = this.conversationManager.listConversations();
+			if (conversations.length > 0 && this.backButton) {
 				this.backButton.style.display = 'inline-block';
 			}
 		}
@@ -149,70 +156,22 @@ export class ChatView extends ItemView {
 	}
 
 	private async loadConversationHistory(): Promise<void> {
-		if (!this.agent || !this.plugin.checkpointService) {
-			console.log('[ChatView] No agent or checkpoint service, showing welcome');
+		if (!this.agent || !this.conversationManager) {
+			console.log('[ChatView] No agent or conversation manager, showing welcome');
 			this.displayWelcomeMessage();
 			return;
 		}
 
-		// If no thread ID, try to load the most recent thread, or create a new one
-		if (!this.threadId) {
-			const threads = this.plugin.checkpointService.listThreads();
-			if (threads.length > 0) {
-				// Load most recent thread
-				this.threadId = threads[0].threadId;
-				console.log('[ChatView] Loading most recent thread:', this.threadId);
-			} else {
-				// Create a new thread
-				this.threadId = await this.plugin.checkpointService.createThread();
-				console.log('[ChatView] Created new thread:', this.threadId);
-				this.displayWelcomeMessage();
-				return;
-			}
-		}
-
-		console.log('[ChatView] Loading conversation history for thread:', this.threadId);
-
 		try {
-			// Get the latest checkpoint for this thread
-			const config = {
-				configurable: { thread_id: this.threadId }
-			};
+			console.log('[ChatView] Loading conversation history...');
 
-			console.log('[ChatView] Fetching checkpoint with config:', config);
-			const checkpoint = await this.plugin.checkpointService.getTuple(config);
-			console.log('[ChatView] Checkpoint result:', checkpoint);
+			// Load most recent conversation or create new one
+			const conversation = await this.conversationManager.loadMostRecentOrCreate();
+			console.log(`[ChatView] Loaded conversation: ${conversation.id} with ${conversation.messageCount} messages`);
 
-			if (checkpoint) {
-				console.log('[ChatView] Checkpoint structure:', {
-					hasCheckpoint: !!checkpoint.checkpoint,
-					hasChannelValues: !!checkpoint.checkpoint?.channel_values,
-					channelValues: checkpoint.checkpoint?.channel_values,
-					keys: checkpoint.checkpoint?.channel_values ? Object.keys(checkpoint.checkpoint.channel_values) : [],
-					messagesType: typeof checkpoint.checkpoint?.channel_values?.messages,
-					messagesIsArray: Array.isArray(checkpoint.checkpoint?.channel_values?.messages),
-					messagesValue: checkpoint.checkpoint?.channel_values?.messages
-				});
-			}
-
-			if (checkpoint && checkpoint.checkpoint.channel_values?.messages) {
-				const messages = checkpoint.checkpoint.channel_values.messages;
-				console.log('[ChatView] Messages found:', {
-					type: typeof messages,
-					isArray: Array.isArray(messages),
-					value: messages,
-					length: Array.isArray(messages) ? messages.length : 'not an array'
-				});
-
-				// Check if messages is an array (not empty object)
-				if (Array.isArray(messages) && messages.length > 0) {
-					console.log(`[ChatView] Found ${messages.length} messages in checkpoint`);
-
-					// Clear existing messages in UI
-					this.messages = [];
-
-					// Display each message
-					for (const msg of messages) {
+			if (conversation.messages.length > 0) {
+				// Display each message
+				for (const msg of conversation.messages) {
 					// Convert LangChain message to our Message format
 					const role = msg._getType() === 'human' ? 'user' : 'assistant';
 					const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
@@ -223,19 +182,12 @@ export class ChatView extends ItemView {
 						timestamp: Date.now() // We don't have original timestamp, use current
 					};
 
-					this.messages.push(message);
 					await this.displayMessage(message);
 				}
 
-					console.log(`[ChatView] Loaded ${messages.length} messages from checkpoint`);
-				} else {
-					// Messages is empty or not an array
-					console.log('[ChatView] No messages found in checkpoint, showing welcome');
-					this.displayWelcomeMessage();
-				}
+				console.log(`[ChatView] Displayed ${conversation.messages.length} messages`);
 			} else {
-				// No checkpoint found, show welcome message
-				console.log('[ChatView] No checkpoint or messages found, showing welcome');
+				// New conversation, show welcome message
 				this.displayWelcomeMessage();
 			}
 		} catch (error) {
@@ -262,7 +214,7 @@ export class ChatView extends ItemView {
 	}
 
 	private async handleSendMessage(): Promise<void> {
-		if (!this.inputEl || !this.messagesContainer) return;
+		if (!this.inputEl || !this.messagesContainer || !this.conversationManager) return;
 
 		const content = this.inputEl.value.trim();
 		if (!content) return;
@@ -277,13 +229,12 @@ export class ChatView extends ItemView {
 		// Clear input
 		this.inputEl.value = '';
 
-		// Add user message
+		// Display user message in UI
 		const userMessage: Message = {
 			role: 'user',
 			content: content,
 			timestamp: Date.now()
 		};
-		this.messages.push(userMessage);
 		await this.displayMessage(userMessage);
 
 		// Set loading state
@@ -297,22 +248,22 @@ export class ChatView extends ItemView {
 			// Convert to LangChain message format
 			const langChainMessages = [new HumanMessage(content)];
 
-			// Call agent with thread ID for persistence and Langsmith metadata
-			const config = {
-				configurable: { thread_id: this.threadId },
-				// Add Langsmith-specific metadata and tags
-				metadata: {
-					thread_id: this.threadId,
-					vault_name: this.app.vault.getName(),
-					user_message_length: content.length,
-					timestamp: new Date().toISOString()
-				},
-				tags: ["obsidian", "vault-interaction", "user-query"]
-			};
+			// Get config from ConversationManager with metadata
+			const config = this.conversationManager.getAgentConfig({
+				vault_name: this.app.vault.getName(),
+				user_message_length: content.length,
+				timestamp: new Date().toISOString()
+			});
+
+			// Add tags for Langsmith
+			config.tags = ["obsidian", "vault-interaction", "user-query"];
 
 			const result = await this.agent.invoke({
 				messages: langChainMessages
 			}, config);
+
+			// Sync conversation state with agent result
+			this.conversationManager.syncFromAgentResult(result.messages);
 
 			// Extract assistant response from result
 			const lastMessage = result.messages[result.messages.length - 1];
@@ -320,13 +271,12 @@ export class ChatView extends ItemView {
 				? lastMessage.content
 				: JSON.stringify(lastMessage.content);
 
-			// Add assistant message
+			// Display assistant message in UI
 			const assistantMessage: Message = {
 				role: 'assistant',
 				content: responseContent,
 				timestamp: Date.now()
 			};
-			this.messages.push(assistantMessage);
 			await this.displayMessage(assistantMessage);
 
 		} catch (error) {
@@ -349,20 +299,19 @@ export class ChatView extends ItemView {
 	}
 
 	private async handleNewChat(): Promise<void> {
-		if (!this.messagesContainer || !this.plugin.checkpointService) return;
+		if (!this.messagesContainer || !this.conversationManager) return;
 
-		// Confirm if there are unsaved messages in current thread
-		if (this.messages.length > 0) {
+		// Confirm if there are messages in current conversation
+		const currentConversation = await this.conversationManager.getCurrentConversation();
+		if (currentConversation && currentConversation.messageCount > 0) {
 			const confirmed = confirm('Start a new conversation? Your current conversation will be saved.');
 			if (!confirmed) return;
 		}
 
-		// Create a new thread
-		const newThreadId = await this.plugin.checkpointService.createThread();
-		this.threadId = newThreadId;
+		// Create a new conversation
+		const conversation = await this.conversationManager.createConversation();
 
 		// Clear UI and show welcome
-		this.messages = [];
 		this.messagesContainer.empty();
 		this.displayWelcomeMessage();
 
@@ -371,7 +320,7 @@ export class ChatView extends ItemView {
 			this.showChatView();
 		}
 
-		console.log(`[ChatView] Started new chat with thread ID: ${newThreadId}`);
+		console.log(`[ChatView] Started new chat with conversation ID: ${conversation.id}`);
 	}
 
 	private showThreadList(): void {
@@ -404,13 +353,13 @@ export class ChatView extends ItemView {
 	}
 
 	private renderThreadList(): void {
-		if (!this.threadListContainer || !this.plugin.checkpointService) return;
+		if (!this.threadListContainer || !this.conversationManager) return;
 
 		this.threadListContainer.empty();
 
-		const threads = this.plugin.checkpointService.listThreads();
+		const conversations = this.conversationManager.listConversations();
 
-		if (threads.length === 0) {
+		if (conversations.length === 0) {
 			const emptyDiv = this.threadListContainer.createDiv({ cls: 'claude-thread-list-empty' });
 			emptyDiv.createEl('p', { text: 'No conversations yet' });
 			emptyDiv.createEl('p', {
@@ -423,11 +372,13 @@ export class ChatView extends ItemView {
 		// Create scrollable list
 		const listDiv = this.threadListContainer.createDiv({ cls: 'claude-thread-list-scroll' });
 
-		for (const thread of threads) {
+		const currentThreadId = this.conversationManager.getCurrentThreadId();
+
+		for (const conversation of conversations) {
 			const threadItem = listDiv.createDiv({ cls: 'claude-thread-item' });
 
-			// Add active indicator if this is the current thread
-			if (thread.threadId === this.threadId) {
+			// Add active indicator if this is the current conversation
+			if (conversation.id === currentThreadId) {
 				threadItem.addClass('claude-thread-item-active');
 			}
 
@@ -435,50 +386,68 @@ export class ChatView extends ItemView {
 
 			// Thread title
 			threadInfo.createEl('div', {
-				text: thread.title,
+				text: conversation.title,
 				cls: 'claude-thread-title'
 			});
 
 			// Thread metadata
 			const metaDiv = threadInfo.createDiv({ cls: 'claude-thread-meta' });
-			const date = new Date(thread.updatedAt);
+			const date = new Date(conversation.updatedAt);
 			metaDiv.createEl('span', {
-				text: `${thread.messageCount} messages • ${date.toLocaleDateString()}`,
+				text: `${conversation.messageCount} messages • ${date.toLocaleDateString()}`,
 				cls: 'claude-thread-meta-text'
 			});
 
-			// Click handler to load thread
-			threadItem.addEventListener('click', () => this.loadThread(thread.threadId));
+			// Click handler to load conversation
+			threadItem.addEventListener('click', () => this.loadThread(conversation.id));
 		}
 	}
 
 	private async loadThread(threadId: string): Promise<void> {
-		if (!this.messagesContainer) return;
+		if (!this.messagesContainer || !this.conversationManager) return;
 
-		this.threadId = threadId;
-		this.messages = [];
+		// Clear UI
 		this.messagesContainer.empty();
 
-		// Load conversation history for this thread
-		await this.loadConversationHistory();
+		// Load conversation
+		const conversation = await this.conversationManager.loadConversation(threadId);
+
+		if (conversation) {
+			// Display messages
+			for (const msg of conversation.messages) {
+				const role = msg._getType() === 'human' ? 'user' : 'assistant';
+				const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+
+				const message: Message = {
+					role: role as 'user' | 'assistant',
+					content: content,
+					timestamp: Date.now()
+				};
+
+				await this.displayMessage(message);
+			}
+
+			console.log(`[ChatView] Loaded conversation: ${threadId} with ${conversation.messages.length} messages`);
+		} else {
+			console.error(`[ChatView] Failed to load conversation: ${threadId}`);
+			this.displayWelcomeMessage();
+		}
 
 		// Switch to chat view
 		this.showChatView();
-
-		console.log(`[ChatView] Loaded thread: ${threadId}`);
 	}
 
-	private handleClear(): void {
-		if (!this.messagesContainer) return;
+	private async handleClear(): Promise<void> {
+		if (!this.messagesContainer || !this.conversationManager) return;
 
-		// Confirm with user
-		if (this.messages.length > 0) {
+		// Check if there are messages in current conversation
+		const currentConversation = await this.conversationManager.getCurrentConversation();
+		if (currentConversation && currentConversation.messageCount > 0) {
 			const confirmed = confirm('Are you sure you want to clear the conversation?');
 			if (!confirmed) return;
 		}
 
-		// Clear messages
-		this.messages = [];
+		// Clear UI
 		this.messagesContainer.empty();
 		this.displayWelcomeMessage();
 	}

@@ -4,6 +4,7 @@ import { ClaudeChatSettingTab } from './settings';
 import { ClaudeChatSettings, DEFAULT_SETTINGS, VIEW_TYPE_CHAT } from './types';
 import { VaultService } from './vault/VaultService';
 import { CheckpointService } from './checkpoint/CheckpointService';
+import { ConversationManager } from './state/ConversationManager';
 import { initializeAsyncLocalStoragePolyfill } from './polyfills/async-hooks';
 
 // CRITICAL: Initialize AsyncLocalStorage polyfill BEFORE any LangChain imports
@@ -15,6 +16,7 @@ export default class ClaudeChatPlugin extends Plugin {
 	private chatView: ChatView | null = null;
 	public vaultService: VaultService | null = null;
 	public checkpointService: CheckpointService | null = null;
+	public conversationManager: ConversationManager | null = null;
 
 	async onload() {
 		console.log('[Plugin] Starting onload...');
@@ -54,6 +56,11 @@ export default class ClaudeChatPlugin extends Plugin {
 			console.log('[Plugin] Initializing CheckpointService...');
 			this.checkpointService = new CheckpointService(this.app, "obsidian-agent");
 			console.log('[Plugin] CheckpointService initialized');
+
+			// Initialize ConversationManager
+			console.log('[Plugin] Initializing ConversationManager...');
+			this.conversationManager = new ConversationManager(this.checkpointService);
+			console.log('[Plugin] ConversationManager initialized');
 
 			// Run automatic cleanup if enabled
 			if (this.settings.enableAutoCleanup) {
