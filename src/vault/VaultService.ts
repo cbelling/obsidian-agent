@@ -1,4 +1,6 @@
-import { App, TFile, TFolder, TAbstractFile, CachedMetadata } from "obsidian";
+import { App, TFile, TFolder } from "obsidian";
+import { SearchOptions, PaginatedResults, FileSearchResult, ContentSearchResult } from "../types";
+import { Cache } from "../utils/Cache";
 
 /**
  * VaultService - Read-only operations for Obsidian vault
@@ -8,9 +10,58 @@ import { App, TFile, TFolder, TAbstractFile, CachedMetadata } from "obsidian";
  */
 export class VaultService {
 	private app: App;
+	private readonly DEFAULT_LIMIT = 50;
+	private readonly MAX_LIMIT = 1000;
+
+	// Caches for frequently accessed data
+	private fileContentCache: Cache<string>;
+	private fileSearchCache: Cache<PaginatedResults<FileSearchResult>>;
+	private contentSearchCache: Cache<PaginatedResults<ContentSearchResult>>;
+	private metadataCache: Cache<any>;
 
 	constructor(app: App) {
 		this.app = app;
+
+		// Initialize caches with different TTLs based on data volatility
+		this.fileContentCache = new Cache<string>(60000); // 1 minute
+		this.fileSearchCache = new Cache<PaginatedResults<FileSearchResult>>(30000); // 30 seconds
+		this.contentSearchCache = new Cache<PaginatedResults<ContentSearchResult>>(30000); // 30 seconds
+		this.metadataCache = new Cache<any>(60000); // 1 minute
+
+		// Prune expired entries every 5 minutes
+		setInterval(() => {
+			this.fileContentCache.prune();
+			this.fileSearchCache.prune();
+			this.contentSearchCache.prune();
+			this.metadataCache.prune();
+		}, 300000);
+	}
+
+	/**
+	 * Clear all caches
+	 */
+	clearCaches(): void {
+		this.fileContentCache.clear();
+		this.fileSearchCache.clear();
+		this.contentSearchCache.clear();
+		this.metadataCache.clear();
+	}
+
+	/**
+	 * Get cache statistics
+	 */
+	getCacheStats(): {
+		fileContent: ReturnType<Cache<string>['stats']>;
+		fileSearch: ReturnType<Cache<PaginatedResults<FileSearchResult>>['stats']>;
+		contentSearch: ReturnType<Cache<PaginatedResults<ContentSearchResult>>['stats']>;
+		metadata: ReturnType<Cache<any>['stats']>;
+	} {
+		return {
+			fileContent: this.fileContentCache.stats(),
+			fileSearch: this.fileSearchCache.stats(),
+			contentSearch: this.contentSearchCache.stats(),
+			metadata: this.metadataCache.stats(),
+		};
 	}
 
 	/**
@@ -19,6 +70,12 @@ export class VaultService {
 	 * @returns File contents as string
 	 */
 	async readFile(path: string): Promise<string> {
+		// Check cache first
+		const cached = this.fileContentCache.get(path);
+		if (cached !== null) {
+			return cached;
+		}
+
 		const file = this.app.vault.getAbstractFileByPath(path);
 
 		if (!file) {
@@ -29,7 +86,12 @@ export class VaultService {
 			throw new Error(`Path is not a file: ${path}`);
 		}
 
-		return await this.app.vault.read(file);
+		const content = await this.app.vault.read(file);
+
+		// Cache the content
+		this.fileContentCache.set(path, content);
+
+		return content;
 	}
 
 	/**
@@ -65,6 +127,77 @@ export class VaultService {
 	}
 
 	/**
+	 * Search for files by filename with pagination support
+	 * @param query - Search query for filename
+	 * @param options - Pagination and sorting options
+	 * @returns Paginated search results
+	 */
+	searchByFilenamePaginated(query: string, options: SearchOptions = {}): PaginatedResults<FileSearchResult> {
+		// Generate cache key from query and options
+		const cacheKey = `filename:${query}:${JSON.stringify(options)}`;
+
+		// Check cache first
+		const cached = this.fileSearchCache.get(cacheKey);
+		if (cached !== null) {
+			return cached;
+		}
+
+		const lowerQuery = query.toLowerCase();
+		const files = this.app.vault.getMarkdownFiles();
+
+		// Filter matching files
+		const filtered = files.filter(f =>
+			f.basename.toLowerCase().includes(lowerQuery) ||
+			f.path.toLowerCase().includes(lowerQuery)
+		);
+
+		// Sort files
+		const sorted = this.sortFiles(filtered, options);
+
+		// Paginate
+		const limit = Math.min(options.limit || this.DEFAULT_LIMIT, this.MAX_LIMIT);
+		const offset = options.offset || 0;
+		const paginated = sorted.slice(offset, offset + limit);
+
+		const result = {
+			results: paginated.map(f => ({
+				path: f.path,
+				basename: f.basename
+			})),
+			total: filtered.length,
+			hasMore: offset + limit < filtered.length,
+			offset,
+			limit
+		};
+
+		// Cache the result
+		this.fileSearchCache.set(cacheKey, result);
+
+		return result;
+	}
+
+	/**
+	 * Sort files based on options
+	 */
+	private sortFiles(files: TFile[], options: SearchOptions): TFile[] {
+		const { sortBy = 'name', sortOrder = 'asc' } = options;
+		const multiplier = sortOrder === 'asc' ? 1 : -1;
+
+		return files.sort((a, b) => {
+			switch (sortBy) {
+				case 'name':
+					return multiplier * a.basename.localeCompare(b.basename);
+				case 'modified':
+					return multiplier * (a.stat.mtime - b.stat.mtime);
+				case 'created':
+					return multiplier * (a.stat.ctime - b.stat.ctime);
+				default:
+					return 0;
+			}
+		});
+	}
+
+	/**
 	 * Search for files by content (full-text search)
 	 * @param query - Search query for content
 	 * @returns Array of objects with file path and matching lines
@@ -95,6 +228,70 @@ export class VaultService {
 		}
 
 		return results;
+	}
+
+	/**
+	 * Search for files by content with pagination support
+	 * @param query - Search query for content
+	 * @param options - Pagination and sorting options
+	 * @returns Paginated content search results
+	 */
+	async searchByContentPaginated(query: string, options: SearchOptions = {}): Promise<PaginatedResults<ContentSearchResult>> {
+		// Generate cache key from query and options
+		const cacheKey = `content:${query}:${JSON.stringify(options)}`;
+
+		// Check cache first
+		const cached = this.contentSearchCache.get(cacheKey);
+		if (cached !== null) {
+			return cached;
+		}
+
+		const lowerQuery = query.toLowerCase();
+		const allResults: ContentSearchResult[] = [];
+
+		const files = this.app.vault.getMarkdownFiles();
+
+		// Search through files (limit total files scanned for performance)
+		const maxFilesToScan = 500;
+		const filesToScan = files.slice(0, maxFilesToScan);
+
+		for (const file of filesToScan) {
+			try {
+				// Use cached file content if available
+				const content = await this.readFile(file.path);
+				const lines = content.split('\n');
+				const matchingLines = lines.filter(line =>
+					line.toLowerCase().includes(lowerQuery)
+				);
+
+				if (matchingLines.length > 0) {
+					allResults.push({
+						path: file.path,
+						matches: matchingLines.slice(0, 5) // Limit to 5 matches per file
+					});
+				}
+			} catch (error) {
+				console.error(`Error reading file ${file.path}:`, error);
+			}
+		}
+
+		// Paginate results
+		const limit = Math.min(options.limit || this.DEFAULT_LIMIT, this.MAX_LIMIT);
+		const offset = options.offset || 0;
+		const paginated = allResults.slice(offset, offset + limit);
+
+		const result = {
+			results: paginated,
+			total: allResults.length,
+			hasMore: offset + limit < allResults.length,
+			offset,
+			limit
+		};
+
+		// Cache the result
+		this.contentSearchCache.set(cacheKey, result);
+
+		return result;
 	}
 
 	/**

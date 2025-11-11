@@ -250,7 +250,6 @@ export class CheckpointService extends BaseCheckpointSaver {
 			const preparedCheckpoint = copyCheckpoint(checkpoint);
 			const checkpointId = preparedCheckpoint.id || `checkpoint-${Date.now()}`;
 			const path = this.getCheckpointPath(threadId, checkpointId);
-			const adapter = this.app.vault.adapter;
 
 			console.log('[CheckpointService] Saving checkpoint:', {
 				threadId,

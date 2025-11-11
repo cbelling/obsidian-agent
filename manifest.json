@@ -1,7 +1,7 @@
 {
   "id": "obsidian-agent",
   "name": "Obsidian Agent",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "minAppVersion": "0.15.0",
   "description": "AI agent powered by Claude that can search and interact with your vault",
   "author": "Charles Bellinger",

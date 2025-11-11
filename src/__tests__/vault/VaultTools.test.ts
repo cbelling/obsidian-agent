@@ -70,7 +70,7 @@ describe('VaultTools Integration', () => {
 			const result = await tool.invoke({ query: 'note' });
 
 			expect(result).toContain('Found 25 file(s)');
-			expect(result).toContain('and 5 more');
+			expect(result).toContain('5 more results available');
 		});
 
 		it('should handle tool execution errors gracefully', async () => {
@@ -123,7 +123,7 @@ describe('VaultTools Integration', () => {
 			const tool = getTool('search_vault_by_content');
 			const result = await tool.invoke({ query: 'keyword' });
 
-			expect(result).toContain('and 5 more files');
+			expect(result).toContain('5 more files available');
 		});
 	});
 

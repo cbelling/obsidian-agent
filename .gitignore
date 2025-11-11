@@ -6,6 +6,9 @@ main.js
 main.js.map
 *.js.map
 
+# Test coverage
+coverage/
+
 # IDE
 .vscode/
 .idea/

@@ -2,7 +2,7 @@ import { ItemView, WorkspaceLeaf, MarkdownRenderer, Notice } from 'obsidian';
 import { VIEW_TYPE_CHAT, Message } from './types';
 import ClaudeChatPlugin from './main';
 import { ObsidianAgent } from './agent/AgentGraph';
-import { HumanMessage, BaseMessage } from "@langchain/core/messages";
+import { HumanMessage } from "@langchain/core/messages";
 import { createVaultTools } from './vault/VaultTools';
 import { ConversationManager } from './state/ConversationManager';
 
@@ -19,6 +19,8 @@ export class ChatView extends ItemView {
 	private chatContainer: HTMLElement | null = null;
 	private backButton: HTMLButtonElement | null = null;
 	private newChatButton: HTMLButtonElement | null = null;
+	private streamingMessageEl: HTMLElement | null = null; // Element for streaming message
+	private streamingMessageContent: string = ''; // Accumulated streaming content
 
 	constructor(leaf: WorkspaceLeaf, plugin: ClaudeChatPlugin) {
 		super(leaf);
@@ -70,7 +72,7 @@ export class ChatView extends ItemView {
 		this.backButton.addEventListener('click', () => this.showThreadList());
 
 		// Title
-		const titleEl = header.createEl('h4', { text: 'Obsidian Agent' });
+		header.createEl('h4', { text: 'Obsidian Agent' });
 
 		// Add New Chat button to header
 		this.newChatButton = header.createEl('button', {
@@ -177,7 +179,7 @@ export class ChatView extends ItemView {
 					const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
 
 					const message: Message = {
-						role: role as 'user' | 'assistant',
+						role: role,
 						content: content,
 						timestamp: Date.now() // We don't have original timestamp, use current
 					};
@@ -258,26 +260,29 @@ export class ChatView extends ItemView {
 			// Add tags for Langsmith
 			config.tags = ["obsidian", "vault-interaction", "user-query"];
 
-			const result = await this.agent.invoke({
-				messages: langChainMessages
-			}, config);
+			// Create streaming message container
+			this.createStreamingMessage();
 
-			// Sync conversation state with agent result
-			this.conversationManager.syncFromAgentResult(result.messages);
+			// Use streaming invoke
+			const responseContent = await this.agent.invokeStream(
+				{ messages: langChainMessages },
+				config,
+				(chunk: string) => {
+					this.appendToStreamingMessage(chunk);
+				},
+				(toolName: string, toolInput: any) => {
+					console.log(`[ChatView] Tool used: ${toolName}`, toolInput);
+				}
+			);
 
-			// Extract assistant response from result
-			const lastMessage = result.messages[result.messages.length - 1];
-			const responseContent = typeof lastMessage.content === 'string'
-				? lastMessage.content
-				: JSON.stringify(lastMessage.content);
+			// Finalize streaming message (re-render with markdown)
+			await this.finalizeStreamingMessage();
 
-			// Display assistant message in UI
-			const assistantMessage: Message = {
-				role: 'assistant',
-				content: responseContent,
-				timestamp: Date.now()
-			};
-			await this.displayMessage(assistantMessage);
+			// Sync conversation state (manually construct result for compatibility)
+			this.conversationManager.syncFromAgentResult([
+				new HumanMessage(content),
+				{ _getType: () => 'ai', content: responseContent } as any
+			]);
 
 		} catch (error) {
 			console.error('Error sending message:', error);
@@ -289,6 +294,12 @@ export class ChatView extends ItemView {
 
 			new Notice(errorMessage);
 
+			// Clean up streaming message if exists
+			if (this.streamingMessageEl) {
+				this.streamingMessageEl.remove();
+				this.streamingMessageEl = null;
+			}
+
 			// Display error in chat
 			const errorDiv = this.messagesContainer.createDiv({ cls: 'claude-chat-error' });
 			errorDiv.createEl('p', { text: `Error: ${errorMessage}` });
@@ -296,6 +307,65 @@ export class ChatView extends ItemView {
 		} finally {
 			this.setLoading(false);
 		}
+	}
+
+	/**
+	 * Create a placeholder message element for streaming content
+	 */
+	private createStreamingMessage(): void {
+		if (!this.messagesContainer) return;
+
+		const messageDiv = this.messagesContainer.createDiv({
+			cls: 'claude-chat-message claude-chat-message-assistant'
+		});
+
+		this.streamingMessageEl = messageDiv.createDiv({ cls: 'claude-chat-message-content' });
+		this.streamingMessageContent = '';
+
+		// Add timestamp
+		const timestamp = new Date();
+		const timeDiv = messageDiv.createDiv({ cls: 'claude-chat-message-time' });
+		timeDiv.setText(timestamp.toLocaleTimeString());
+	}
+
+	/**
+	 * Append a text chunk to the streaming message
+	 */
+	private appendToStreamingMessage(chunk: string): void {
+		if (!this.streamingMessageEl) return;
+
+		this.streamingMessageContent += chunk;
+
+		// Update the text content (plain text while streaming)
+		this.streamingMessageEl.setText(this.streamingMessageContent);
+
+		// Auto-scroll to bottom
+		this.scrollToBottom();
+	}
+
+	/**
+	 * Finalize the streaming message by re-rendering with markdown
+	 */
+	private async finalizeStreamingMessage(): Promise<void> {
+		if (!this.streamingMessageEl) return;
+
+		// Clear and re-render with markdown
+		const content = this.streamingMessageContent;
+		this.streamingMessageEl.empty();
+
+		await MarkdownRenderer.render(
+			this.app,
+			content,
+			this.streamingMessageEl,
+			'',
+			this.plugin
+		);
+
+		// Reset streaming state
+		this.streamingMessageEl = null;
+		this.streamingMessageContent = '';
+
+		this.scrollToBottom();
 	}
 
 	private async handleNewChat(): Promise<void> {
@@ -419,7 +489,7 @@ export class ChatView extends ItemView {
 				const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
 
 				const message: Message = {
-					role: role as 'user' | 'assistant',
+					role: role,
 					content: content,
 					timestamp: Date.now()
 				};

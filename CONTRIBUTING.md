@@ -1,250 +1,480 @@
-# Contributing to Claude Chat
+# Contributing to Obsidian Agent
 
-Thank you for your interest in contributing to Claude Chat! This document provides guidelines and instructions for contributing.
+Thank you for considering contributing to Obsidian Agent! This document provides guidelines and instructions for contributing to the project.
+
+## Table of Contents
+
+1. [Code of Conduct](#code-of-conduct)
+2. [Getting Started](#getting-started)
+3. [How to Contribute](#how-to-contribute)
+4. [Development Workflow](#development-workflow)
+5. [Coding Standards](#coding-standards)
+6. [Testing Requirements](#testing-requirements)
+7. [Pull Request Process](#pull-request-process)
+8. [Issue Guidelines](#issue-guidelines)
+
+---
 
 ## Code of Conduct
 
-- Be respectful and inclusive
-- Welcome newcomers and help them learn
-- Focus on constructive feedback
-- Keep discussions on topic
+This project adheres to a code of conduct that promotes a welcoming and inclusive environment:
 
-## How to Contribute
+- **Be respectful**: Treat all contributors with respect and courtesy
+- **Be constructive**: Provide helpful feedback and suggestions
+- **Be collaborative**: Work together to improve the project
+- **Be patient**: Remember that everyone is learning and growing
 
-### Reporting Bugs
+Unacceptable behavior will not be tolerated and may result in removal from the project.
 
-Before creating a bug report:
-1. Check existing [issues](https://github.com/charlesbellinger/obsidian-claude-chat/issues)
-2. Verify the bug with the latest version
-3. Collect relevant information (OS, Obsidian version, console errors)
+---
 
-**When reporting:**
-- Use a clear, descriptive title
-- Describe the expected vs actual behavior
-- Include steps to reproduce
-- Add screenshots if applicable
-- Include console errors (Cmd/Ctrl + Shift + I)
+## Getting Started
 
-### Suggesting Features
+### Prerequisites
 
-Feature suggestions are welcome! Please:
-1. Check if it's already on the [roadmap](docs/VISION.md)
-2. Search existing feature requests
-3. Describe the problem it solves
-4. Explain your proposed solution
-5. Consider if it fits the plugin's scope
+Before you begin, ensure you have:
 
-### Pull Requests
+- **Node.js 16+** and npm installed
+- **Git** for version control
+- **Obsidian desktop app** for testing
+- **TypeScript knowledge** (intermediate level recommended)
+- **Familiarity with Obsidian plugin API** (helpful but not required)
 
-#### Before Starting
+### Setting Up Your Development Environment
 
-1. **Check existing issues** - Someone might already be working on it
-2. **Discuss major changes** - Open an issue first for big features
-3. **Read the docs** - Familiarize yourself with [DEVELOPMENT.md](docs/DEVELOPMENT.md)
+1. **Fork the repository** on GitHub
 
-#### Development Process
-
-1. **Fork and clone** the repository
+2. **Clone your fork**:
    ```bash
-   git clone https://github.com/YOUR-USERNAME/obsidian-claude-chat
-   cd obsidian-claude-chat
+   git clone https://github.com/YOUR-USERNAME/obsidian-agent.git
+   cd obsidian-agent
    ```
 
-2. **Create a branch** from `main`
+3. **Add upstream remote**:
    ```bash
-   git checkout -b feature/your-feature-name
+   git remote add upstream https://github.com/charlesbellinger/obsidian-agent.git
    ```
 
-3. **Set up development** environment
+4. **Install dependencies**:
    ```bash
    npm install
+   ```
+
+5. **Create a test vault** for development (or use an existing one)
+
+6. **Symlink the plugin** to your test vault:
+   ```bash
+   ln -s $(pwd) "/path/to/test-vault/.obsidian/plugins/obsidian-agent"
+   ```
+
+7. **Start development mode**:
+   ```bash
    npm run dev
    ```
 
-4. **Make your changes**
-   - Write clean, documented code
-   - Follow existing code style
-   - Test thoroughly
+See [DEVELOPMENT.md](docs/DEVELOPMENT.md) for detailed development instructions.
 
-5. **Test your changes**
-   - [ ] Plugin loads without errors
-   - [ ] New feature works as expected
-   - [ ] Existing features still work
-   - [ ] No console errors
-   - [ ] Works on light and dark themes
-   - [ ] Mobile compatible (if applicable)
+---
 
-6. **Commit your changes**
-   ```bash
-   git add .
-   git commit -m "feat: add your feature description"
-   ```
+## How to Contribute
 
-   Use conventional commit format:
-   - `feat:` - New feature
-   - `fix:` - Bug fix
-   - `docs:` - Documentation only
-   - `style:` - Formatting, no code change
-   - `refactor:` - Code restructuring
-   - `test:` - Adding tests
-   - `chore:` - Build/tooling changes
+### Types of Contributions
 
-7. **Push and create PR**
-   ```bash
-   git push origin feature/your-feature-name
-   ```
-   Then open a pull request on GitHub
+We welcome all types of contributions:
 
-#### PR Guidelines
+- **Bug fixes**: Fix issues reported in GitHub Issues
+- **Feature enhancements**: Improve existing features
+- **New features**: Add new capabilities (discuss first in an issue)
+- **Documentation**: Improve docs, add examples, fix typos
+- **Tests**: Add test coverage for existing code
+- **Performance**: Optimize performance bottlenecks
+- **Code quality**: Refactor code, improve types, add comments
 
-**Title:** Clear and descriptive
-- ✅ "Add conversation persistence to ChatView"
-- ❌ "Update code"
+### Finding Something to Work On
 
-**Description should include:**
-- What changes were made
-- Why these changes were needed
-- How to test the changes
-- Screenshots/videos for UI changes
-- Related issue numbers
+1. **Check existing issues**: Look for issues labeled `good first issue` or `help wanted`
+2. **Review the roadmap**: See what features are planned for future versions
+3. **Fix bugs**: Pick an open bug report and submit a fix
+4. **Improve docs**: Documentation can always be improved
+5. **Add tests**: Increase test coverage in areas that need it
 
-**Before submitting:**
-- [ ] Code follows project style
-- [ ] Comments added for complex logic
-- [ ] No console.log statements (unless intentional)
-- [ ] Build passes (`npm run build`)
-- [ ] Documentation updated if needed
+If you want to work on something that doesn't have an issue, please create one first to discuss the approach.
 
-## Code Style
+---
 
-### TypeScript
+## Development Workflow
+
+### 1. Create a Branch
+
+Always create a new branch for your work:
+
+```bash
+# Update your fork with latest changes
+git fetch upstream
+git checkout main
+git merge upstream/main
+
+# Create a feature branch
+git checkout -b feature/your-feature-name
+
+# Or for bug fixes
+git checkout -b fix/issue-description
+```
+
+### 2. Make Your Changes
+
+- Write clean, readable code following our [coding standards](#coding-standards)
+- Add tests for new functionality
+- Update documentation if needed
+- Keep commits focused and atomic
+
+### 3. Test Your Changes
+
+Before submitting, ensure:
+
+```bash
+# All tests pass
+npm test
+
+# Build succeeds
+npm run build
+
+# Test in Obsidian
+# 1. Reload plugin (Cmd/Ctrl + R)
+# 2. Test your changes manually
+# 3. Check console for errors
+```
+
+### 4. Commit Your Changes
+
+Write clear, descriptive commit messages:
+
+```bash
+# Good commit messages
+git commit -m "feat: Add streaming support for agent responses"
+git commit -m "fix: Resolve pagination bug in search results"
+git commit -m "docs: Update README with caching documentation"
+git commit -m "test: Add tests for VaultService pagination"
+
+# Use conventional commit format:
+# feat: New feature
+# fix: Bug fix
+# docs: Documentation changes
+# test: Test additions or modifications
+# refactor: Code refactoring
+# perf: Performance improvements
+# chore: Build process or tooling changes
+```
+
+### 5. Push and Create Pull Request
+
+```bash
+# Push to your fork
+git push origin feature/your-feature-name
+
+# Then create a Pull Request on GitHub
+```
+
+---
+
+## Coding Standards
+
+### TypeScript Guidelines
+
+- **Use explicit types**: Always specify parameter and return types
+- **Avoid `any`**: Use proper types or `unknown`
+- **Prefer `const`**: Use `const` over `let` when possible
+- **Use async/await**: Instead of `.then()` chains
+- **Document complex logic**: Add comments for non-obvious code
+
+**Example:**
 
 ```typescript
-// ✅ Good
-async function handleMessage(content: string): Promise<void> {
-    if (!content.trim()) {
-        return;
+// Good
+async function readFile(path: string): Promise<string> {
+    const file = this.vault.getAbstractFileByPath(path);
+
+    if (!file || !(file instanceof TFile)) {
+        throw new Error(`File not found: ${path}`);
     }
 
-    try {
-        const response = await this.apiService.send(content);
-        this.displayMessage(response);
-    } catch (error) {
-        console.error('Failed to send message:', error);
-        new Notice('Failed to send message');
-    }
+    return await this.vault.read(file);
 }
 
-// ❌ Avoid
-async function handle(c: string) {
-    if (!c.trim()) return;
-    let r = await this.apiService.send(c);
-    this.displayMessage(r);
+// Avoid
+function readFile(path: any): any {
+    let file = this.vault.getAbstractFileByPath(path);
+    return this.vault.read(file);
 }
 ```
 
-### CSS
+### Error Handling
 
-```css
-/* ✅ Good - Use Obsidian variables */
-.claude-chat-container {
-    background-color: var(--background-primary);
-    color: var(--text-normal);
-    padding: 16px;
+Always use the `ErrorHandler` for consistent error handling:
+
+```typescript
+import { ErrorHandler } from './errors/ErrorHandler';
+
+try {
+    await someOperation();
+} catch (error) {
+    const agentError = ErrorHandler.handle(error);
+    ErrorHandler.log(agentError);
+    throw agentError;
 }
-
-/* ❌ Avoid - Hardcoded colors */
-.claude-chat-container {
-    background-color: #ffffff;
-    color: #000000;
-}
 ```
 
-### Best Practices
+### File Organization
 
-- **Type safety:** Use TypeScript types, avoid `any`
-- **Error handling:** Always catch and handle errors
-- **User feedback:** Show notices for important actions
-- **Performance:** Don't block the UI thread
-- **Accessibility:** Support keyboard navigation
-- **Mobile:** Consider mobile screen sizes
+- Keep files focused on a single responsibility
+- Use clear, descriptive file names
+- Group related files in directories
+- Export only what's needed (avoid default exports)
 
-## Project Structure
+### Naming Conventions
 
+- **Classes**: PascalCase (`VaultService`, `AgentGraph`)
+- **Functions/Methods**: camelCase (`searchFiles`, `readFile`)
+- **Constants**: UPPER_SNAKE_CASE (`DEFAULT_LIMIT`, `MAX_RETRIES`)
+- **Interfaces/Types**: PascalCase (`SearchOptions`, `PaginatedResults`)
+- **Private members**: prefix with `_` (`_cacheStore`, `_pruneInterval`)
+
+---
+
+## Testing Requirements
+
+### Test Coverage Requirements
+
+All contributions must maintain or improve test coverage:
+
+- **Statements**: 80%+
+- **Branches**: 75%+
+- **Functions**: 80%+
+- **Lines**: 80%+
+
+### Writing Tests
+
+Tests should be:
+
+1. **Focused**: Test one thing at a time
+2. **Descriptive**: Use clear test names
+3. **Independent**: Don't rely on test execution order
+4. **Fast**: Avoid unnecessary delays
+
+**Test structure:**
+
+```typescript
+import { describe, it, expect, beforeEach } from 'vitest';
+
+describe('FeatureName', () => {
+    beforeEach(() => {
+        // Setup
+    });
+
+    it('should handle success case', () => {
+        // Test implementation
+    });
+
+    it('should handle error case', () => {
+        // Test implementation
+    });
+
+    it('should handle edge case', () => {
+        // Test implementation
+    });
+});
 ```
-chat-plugin/
-├── src/                    # Source code
-│   ├── main.ts            # Plugin entry
-│   ├── ChatView.ts        # UI component
-│   ├── ChatService.ts     # API service
-│   ├── settings.ts        # Settings UI
-│   └── types.ts           # Type definitions
-├── docs/                   # Documentation
-├── styles.css             # Styling
-└── README.md              # User docs
+
+Use mocks from `src/__tests__/mocks/` for Obsidian API.
+
+### Running Tests
+
+```bash
+# Run all tests
+npm test
+
+# Run in watch mode (recommended during development)
+npm run test:watch
+
+# Run with coverage
+npm run test:coverage
+
+# Run specific tests
+npm test -- VaultService
 ```
+
+---
+
+## Pull Request Process
+
+### Before Submitting
+
+Ensure your PR:
+
+- [ ] Has a clear, descriptive title
+- [ ] References related issues (e.g., "Fixes #123")
+- [ ] Includes tests for new functionality
+- [ ] Updates documentation if needed
+- [ ] Passes all tests (`npm test`)
+- [ ] Builds successfully (`npm run build`)
+- [ ] Follows coding standards
+- [ ] Has meaningful commit messages
+
+### PR Description Template
+
+```markdown
+## Description
+Brief description of what this PR does.
+
+## Related Issue
+Fixes #123
+
+## Changes Made
+- Change 1
+- Change 2
+- Change 3
 
 ## Testing
+How did you test these changes?
 
-### Manual Testing Checklist
+## Screenshots (if applicable)
+Add screenshots for UI changes
 
-Test your changes against this checklist:
+## Checklist
+- [ ] Tests pass
+- [ ] Build succeeds
+- [ ] Documentation updated
+- [ ] Follows coding standards
+```
 
-**Basic Functionality:**
-- [ ] Plugin loads successfully
-- [ ] Settings save correctly
-- [ ] Chat opens from ribbon icon
-- [ ] Chat opens from command palette
-- [ ] Messages send and receive
-- [ ] Clear conversation works
+### Review Process
 
-**Edge Cases:**
-- [ ] Empty messages are blocked
-- [ ] API errors are handled gracefully
-- [ ] Long messages work correctly
-- [ ] Special characters render properly
-- [ ] Rate limiting is handled
+1. **Automated checks**: CI runs tests and build
+2. **Code review**: Maintainers review your code
+3. **Feedback**: Address any requested changes
+4. **Approval**: Once approved, PR will be merged
+5. **Cleanup**: Delete your branch after merge
 
-**Visual:**
-- [ ] Light theme looks good
-- [ ] Dark theme looks good
-- [ ] Mobile layout works (if applicable)
-- [ ] No visual glitches
-- [ ] Scrolling works smoothly
+### Tips for Getting Your PR Accepted
 
-**Performance:**
-- [ ] No lag when typing
-- [ ] Long conversations don't slow down
-- [ ] Memory usage is reasonable
+- **Keep it focused**: One feature/fix per PR
+- **Write tests**: PRs with tests are prioritized
+- **Update docs**: Help users understand your changes
+- **Respond promptly**: Address feedback quickly
+- **Be patient**: Reviews take time
 
-## Documentation
+---
 
-Update docs when you:
-- Add a new feature
-- Change existing behavior
-- Add configuration options
-- Modify the API
+## Issue Guidelines
 
-Which docs to update:
-- `README.md` - User-facing changes
-- `docs/DEVELOPMENT.md` - Developer setup/workflow
-- `docs/VISION.md` - New planned features
-- Code comments - Complex logic
+### Reporting Bugs
 
-## Getting Help
+When reporting bugs, please include:
 
-Stuck or have questions?
+1. **Clear title**: Describe the bug briefly
+2. **Steps to reproduce**: How to trigger the bug
+3. **Expected behavior**: What should happen
+4. **Actual behavior**: What actually happens
+5. **Environment**:
+   - Obsidian version
+   - Plugin version
+   - Operating system
+   - Mobile or desktop
+6. **Console logs**: Any relevant error messages
+7. **Screenshots**: If applicable
 
-- Check [DEVELOPMENT.md](docs/DEVELOPMENT.md)
-- Search existing [issues](https://github.com/charlesbellinger/obsidian-claude-chat/issues)
-- Ask in the Obsidian Discord [#plugin-dev](https://discord.gg/obsidianmd)
-- Open a [discussion](https://github.com/charlesbellinger/obsidian-claude-chat/discussions)
+**Bug report template:**
 
-## Recognition
+```markdown
+## Bug Description
+Clear description of the bug
 
-Contributors will be:
-- Listed in CHANGELOG for their contributions
-- Mentioned in release notes
-- Added to GitHub contributors page
+## Steps to Reproduce
+1. Step 1
+2. Step 2
+3. Step 3
 
-Thank you for contributing to Claude Chat! 🎉
+## Expected Behavior
+What should happen
+
+## Actual Behavior
+What actually happens
+
+## Environment
+- Obsidian version: 1.x.x
+- Plugin version: 1.x.x
+- OS: macOS/Windows/Linux/iOS/Android
+- Platform: Desktop/Mobile
+
+## Console Logs
+```
+Paste error logs here
+```
+
+## Screenshots
+Add screenshots if helpful
+```
+
+### Requesting Features
+
+When requesting features:
+
+1. **Clear description**: What feature do you want?
+2. **Use case**: Why is this feature needed?
+3. **Proposed solution**: How might it work?
+4. **Alternatives**: Any alternative approaches?
+5. **Willingness to contribute**: Can you help implement it?
+
+**Feature request template:**
+
+```markdown
+## Feature Description
+Clear description of the feature
+
+## Use Case
+Why is this feature needed?
+
+## Proposed Solution
+How might this feature work?
+
+## Alternatives Considered
+Any alternative approaches?
+
+## Additional Context
+Any other relevant information
+
+## Willing to Contribute
+- [ ] I would like to implement this feature
+- [ ] I can help with testing
+- [ ] I can help with documentation
+```
+
+---
+
+## Additional Resources
+
+- [DEVELOPMENT.md](docs/DEVELOPMENT.md) - Detailed development guide
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - System architecture documentation
+- [README.md](README.md) - User documentation
+- [Obsidian Plugin API](https://docs.obsidian.md/) - Official API docs
+- [LangGraph Documentation](https://langchain-ai.github.io/langgraph/) - Agent framework
+- [Anthropic API Docs](https://docs.anthropic.com/) - Claude API reference
+
+---
+
+## Questions?
+
+If you have questions:
+
+1. Check existing documentation
+2. Search closed issues
+3. Open a new issue with your question
+4. Tag it with the `question` label
+
+---
+
+## Thank You!
+
+Thank you for contributing to Obsidian Agent! Every contribution, no matter how small, helps improve the project for everyone.
+
+We appreciate your time and effort in making this plugin better.

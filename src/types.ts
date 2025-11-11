@@ -26,3 +26,32 @@ export const DEFAULT_SETTINGS: ClaudeChatSettings = {
 };
 
 export const VIEW_TYPE_CHAT = 'claude-chat-view';
+
+/**
+ * Pagination and Search Options
+ */
+export interface SearchOptions {
+	limit?: number;
+	offset?: number;
+	sortBy?: 'name' | 'modified' | 'created';
+	sortOrder?: 'asc' | 'desc';
+}
+
+export interface PaginatedResults<T> {
+	results: T[];
+	total: number;
+	hasMore: boolean;
+	offset: number;
+	limit: number;
+}
+
+export interface FileSearchResult {
+	path: string;
+	basename: string;
+	score?: number;
+}
+
+export interface ContentSearchResult {
+	path: string;
+	matches: string[];
+}

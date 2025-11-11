@@ -147,7 +147,7 @@ export class ObsidianAgent {
 				return { role: "assistant" as const, content: msg.content as string };
 			}
 			// Fallback for other message types
-			return { role: "user" as const, content: String(msg.content) };
+			return { role: "user" as const, content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content) };
 		});
 	}
 
@@ -306,5 +306,164 @@ export class ObsidianAgent {
 			...config,
 			streamMode: "values",
 		});
+	}
+
+	/**
+	 * Stream response from Anthropic API with real-time token streaming
+	 *
+	 * @param input - Messages to send to the agent
+	 * @param config - Configuration including thread_id for conversation context
+	 * @param onChunk - Callback invoked for each streamed text chunk
+	 * @param onToolUse - Optional callback invoked when tools are used
+	 * @returns Final complete response content
+	 */
+	async invokeStream(
+		input: { messages: BaseMessage[] },
+		config: any,
+		onChunk: (chunk: string) => void,
+		onToolUse?: (toolName: string, toolInput: any) => void
+	): Promise<string> {
+		try {
+			// Apply rate limiting
+			await RateLimiters.ANTHROPIC_API.removeTokens(1);
+
+			// Load conversation state from checkpoint if thread_id provided
+			const threadId = config?.configurable?.thread_id;
+			let conversationMessages: BaseMessage[] = [];
+
+			if (threadId) {
+				try {
+					const checkpoint = await this.checkpointer.getTuple({ configurable: { thread_id: threadId } });
+					if (checkpoint && checkpoint.checkpoint.channel_values.messages) {
+						conversationMessages = checkpoint.checkpoint.channel_values.messages as BaseMessage[];
+					}
+				} catch (error) {
+					console.warn('[Obsidian Agent] Failed to load checkpoint for streaming:', error);
+				}
+			}
+
+			// Combine conversation history with new input
+			const allMessages = [...conversationMessages, ...input.messages];
+			const anthropicMessages = this.convertToAnthropicMessages(allMessages);
+			const anthropicTools = this.convertToAnthropicTools(this.tools);
+
+			let fullResponse = '';
+			const currentToolUses: any[] = [];
+			let requiresToolExecution = false;
+
+			// Stream from Anthropic API
+			const stream = await RetryHandler.withRetry(
+				async () => {
+					return await this.anthropic.messages.stream({
+						model: AGENT_CONFIG.MODEL,
+						max_tokens: AGENT_CONFIG.MAX_TOKENS,
+						system: AGENT_SYSTEM_PROMPT,
+						messages: anthropicMessages,
+						tools: anthropicTools as any,
+					});
+				},
+				{
+					maxAttempts: AGENT_CONFIG.RETRY_ATTEMPTS,
+					baseDelay: AGENT_CONFIG.RETRY_BASE_DELAY,
+					maxDelay: AGENT_CONFIG.RETRY_MAX_DELAY,
+					onRetry: (error, attempt, nextDelay) => {
+						console.log(`[Obsidian Agent] Stream API call failed (attempt ${attempt}), retrying in ${nextDelay}ms:`, error.code);
+					}
+				}
+			);
+
+			// Process stream events
+			for await (const event of stream) {
+				if (event.type === 'content_block_start') {
+					if (event.content_block.type === 'tool_use') {
+						requiresToolExecution = true;
+						const toolUse = event.content_block;
+						currentToolUses.push(toolUse);
+
+						if (onToolUse) {
+							onToolUse(toolUse.name, toolUse.input);
+						}
+					}
+				} else if (event.type === 'content_block_delta') {
+					if (event.delta.type === 'text_delta') {
+						const textChunk = event.delta.text;
+						fullResponse += textChunk;
+						onChunk(textChunk);
+					}
+				}
+			}
+
+			// If tools were called, execute them and continue conversation
+			if (requiresToolExecution && currentToolUses.length > 0) {
+				onChunk('\n\n_[Using tools...]_\n\n');
+
+				// Execute tools through the full agent graph
+				const aiMessageWithTools = new AIMessage({
+					content: fullResponse || "Using tools...",
+					tool_calls: currentToolUses.map(tu => ({
+						name: tu.name,
+						args: tu.input,
+						id: tu.id,
+					})),
+				});
+
+				// Invoke full agent with tool execution
+				const result = await this.agent.invoke({
+					messages: [...allMessages, aiMessageWithTools]
+				}, config) as AgentStateType;
+
+				// Get final response after tool execution
+				const messages = result.messages;
+				const lastMessage = messages[messages.length - 1];
+				const finalContent = typeof lastMessage.content === 'string'
+					? lastMessage.content
+					: JSON.stringify(lastMessage.content);
+
+				// Stream the final response
+				for (let i = 0; i < finalContent.length; i += 20) {
+					const chunk = finalContent.slice(i, i + 20);
+					onChunk(chunk);
+					// Small delay to simulate streaming
+					await new Promise(resolve => setTimeout(resolve, 10));
+				}
+
+				return finalContent;
+			}
+
+			// Save to checkpoint if thread_id provided
+			if (threadId) {
+				try {
+					const aiMessage = new AIMessage({ content: fullResponse });
+					await this.checkpointer.put(
+						{ configurable: { thread_id: threadId } },
+						{
+							v: 1,
+							ts: Date.now().toString(),
+							id: threadId,
+							channel_values: {
+								messages: [...allMessages, aiMessage]
+							},
+							channel_versions: {},
+							versions_seen: {}
+						},
+						{ source: 'update', step: -1, parents: {} },
+						{} // newVersions parameter
+					);
+				} catch (error) {
+					console.warn('[Obsidian Agent] Failed to save checkpoint after streaming:', error);
+				}
+			}
+
+			return fullResponse;
+
+		} catch (error) {
+			// Handle and wrap error
+			const agentError = ErrorHandler.handle(error);
+			ErrorHandler.log(agentError);
+
+			const errorMsg = `I encountered an error: ${agentError.getUserMessage()}`;
+			onChunk(errorMsg);
+			return errorMsg;
+		}
 	}
 }

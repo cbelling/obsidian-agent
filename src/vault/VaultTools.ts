@@ -11,24 +11,41 @@ export function createVaultTools(vaultService: VaultService) {
 	 * Tool: Search vault by filename
 	 */
 	const searchVaultByName = tool(
-		async (input: { query: string }) => {
+		async (input: { query: string; limit?: number; offset?: number }) => {
 			try {
-				const results = vaultService.searchByFilename(input.query);
+				const results = vaultService.searchByFilenamePaginated(input.query, {
+					limit: input.limit || 20,
+					offset: input.offset || 0,
+					sortBy: 'name',
+					sortOrder: 'asc'
+				});
 
-				if (results.length === 0) {
+				if (results.total === 0) {
 					return `No files found matching "${input.query}"`;
 				}
 
-				return `Found ${results.length} file(s) matching "${input.query}":\n${results.slice(0, 20).join('\n')}${results.length > 20 ? `\n...and ${results.length - 20} more` : ''}`;
+				let response = `Found ${results.total} file(s) matching "${input.query}"`;
+				if (results.total > results.results.length) {
+					response += ` (showing ${results.results.length})`;
+				}
+				response += `:\n${results.results.map(r => r.path).join('\n')}`;
+
+				if (results.hasMore) {
+					response += `\n\n_Note: ${results.total - (results.offset + results.limit)} more results available. Use offset parameter to see more._`;
+				}
+
+				return response;
 			} catch (error) {
 				return `Error searching files: ${error instanceof Error ? error.message : String(error)}`;
 			}
 		},
 		{
 			name: "search_vault_by_name",
-			description: "Search for files in the vault by filename. Use this when the user asks about specific notes or files by name. Returns a list of file paths that match the query (case-insensitive, partial match).",
+			description: "Search for files in the vault by filename. Use this when the user asks about specific notes or files by name. Returns a list of file paths that match the query (case-insensitive, partial match). Supports pagination for large result sets.",
 			schema: z.object({
 				query: z.string().describe("The search query for filenames (e.g., 'meeting', 'daily note', 'project')"),
+				limit: z.number().min(1).max(100).optional().describe("Maximum number of results to return (default: 20)"),
+				offset: z.number().min(0).optional().describe("Number of results to skip for pagination (default: 0)"),
 			}),
 		}
 	);
@@ -37,17 +54,24 @@ export function createVaultTools(vaultService: VaultService) {
 	 * Tool: Search vault by content
 	 */
 	const searchVaultByContent = tool(
-		async (input: { query: string }) => {
+		async (input: { query: string; limit?: number; offset?: number }) => {
 			try {
-				const results = await vaultService.searchByContent(input.query);
+				const results = await vaultService.searchByContentPaginated(input.query, {
+					limit: input.limit || 10,
+					offset: input.offset || 0
+				});
 
-				if (results.length === 0) {
+				if (results.total === 0) {
 					return `No files found containing "${input.query}"`;
 				}
 
-				let response = `Found "${input.query}" in ${results.length} file(s):\n\n`;
+				let response = `Found "${input.query}" in ${results.total} file(s)`;
+				if (results.total > results.results.length) {
+					response += ` (showing ${results.results.length})`;
+				}
+				response += `:\n\n`;
 
-				for (const result of results.slice(0, 10)) {
+				for (const result of results.results) {
 					response += `**${result.path}**:\n`;
 					for (const match of result.matches) {
 						response += `  - ${match.trim()}\n`;
@@ -55,8 +79,8 @@ export function createVaultTools(vaultService: VaultService) {
 					response += '\n';
 				}
 
-				if (results.length > 10) {
-					response += `...and ${results.length - 10} more files`;
+				if (results.hasMore) {
+					response += `\n_Note: ${results.total - (results.offset + results.limit)} more files available. Use offset parameter to see more._`;
 				}
 
 				return response;
@@ -66,9 +90,11 @@ export function createVaultTools(vaultService: VaultService) {
 		},
 		{
 			name: "search_vault_by_content",
-			description: "Search for text content within vault files. Use this when the user asks about specific topics, concepts, or text they remember from their notes. Returns matching lines from files that contain the query.",
+			description: "Search for text content within vault files. Use this when the user asks about specific topics, concepts, or text they remember from their notes. Returns matching lines from files that contain the query. Supports pagination for large result sets.",
 			schema: z.object({
 				query: z.string().describe("The text to search for within file contents (e.g., 'machine learning', 'todo', 'important')"),
+				limit: z.number().min(1).max(50).optional().describe("Maximum number of files to return (default: 10)"),
+				offset: z.number().min(0).optional().describe("Number of results to skip for pagination (default: 0)"),
 			}),
 		}
 	);
