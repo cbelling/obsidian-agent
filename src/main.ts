@@ -27,25 +27,24 @@ export default class ClaudeChatPlugin extends Plugin {
 			await this.loadSettings();
 			console.log('[Plugin] Settings loaded successfully');
 
-			// Configure Langsmith if enabled (only on desktop platforms)
-			console.log('[Plugin] Configuring Langsmith...');
-			if (!Platform.isMobile && this.settings.langsmithEnabled && this.settings.langsmithApiKey) {
-				if (typeof process !== 'undefined' && process.env) {
-					process.env.LANGSMITH_TRACING = "true";
-					process.env.LANGSMITH_API_KEY = this.settings.langsmithApiKey;
-					process.env.LANGSMITH_PROJECT = this.settings.langsmithProject || "obsidian-agent";
-					process.env.LANGSMITH_ENDPOINT = "https://api.smith.langchain.com";
-					console.log('[Plugin] Langsmith tracing enabled for project:', this.settings.langsmithProject);
-				}
+			// Configure LangSmith from environment (development only)
+			console.log('[Plugin] Configuring LangSmith...');
+			if (!Platform.isMobile && typeof process !== 'undefined' && process.env?.LANGSMITH_API_KEY) {
+				process.env.LANGSMITH_TRACING = "true";
+				process.env.LANGSMITH_PROJECT = process.env.LANGSMITH_PROJECT || "obsidian-agent-dev";
+				process.env.LANGSMITH_ENDPOINT = "https://api.smith.langchain.com";
+				console.log('[DEV] LangSmith tracing enabled');
+				console.log('[DEV] Project:', process.env.LANGSMITH_PROJECT);
+				console.log('[DEV] Dashboard: https://smith.langchain.com');
 			} else {
 				if (typeof process !== 'undefined' && process.env) {
 					process.env.LANGSMITH_TRACING = "false";
 				}
-				if (Platform.isMobile && this.settings.langsmithEnabled) {
-					console.log('[Plugin] Langsmith tracing not available on mobile');
+				if (!Platform.isMobile && typeof process === 'undefined') {
+					console.log('[DEV] LangSmith tracing not available (no process.env)');
 				}
 			}
-			console.log('[Plugin] Langsmith configuration complete');
+			console.log('[Plugin] LangSmith configuration complete');
 
 			// Initialize VaultService
 			console.log('[Plugin] Initializing VaultService...');
@@ -65,7 +64,7 @@ export default class ClaudeChatPlugin extends Plugin {
 			// Run automatic cleanup if enabled
 			if (this.settings.enableAutoCleanup) {
 				console.log('[Plugin] Running auto cleanup...');
-				this.runAutoCleanup();
+				void this.runAutoCleanup();
 			}
 
 			// Register the chat view
@@ -83,7 +82,7 @@ export default class ClaudeChatPlugin extends Plugin {
 			// Add ribbon icon to open chat
 			console.log('[Plugin] Adding ribbon icon...');
 			this.addRibbonIcon('message-circle', 'Open Obsidian Agent', () => {
-				this.activateView();
+				void this.activateView();
 			});
 
 			// Add command to open chat
@@ -92,7 +91,7 @@ export default class ClaudeChatPlugin extends Plugin {
 				id: 'open-obsidian-agent',
 				name: 'Open Obsidian Agent',
 				callback: () => {
-					this.activateView();
+					void this.activateView();
 				}
 			});
 
@@ -112,7 +111,7 @@ export default class ClaudeChatPlugin extends Plugin {
 		}
 	}
 
-	async onunload() {
+	onunload() {
 		// Detach all leaves of our view type
 		this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHAT);
 	}
@@ -137,7 +136,7 @@ export default class ClaudeChatPlugin extends Plugin {
 
 		// Reveal the leaf
 		if (leaf) {
-			workspace.revealLeaf(leaf);
+			void workspace.revealLeaf(leaf);
 		}
 	}
 
@@ -147,26 +146,6 @@ export default class ClaudeChatPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-
-		// Reconfigure Langsmith when settings change (only on desktop platforms)
-		if (!Platform.isMobile && this.settings.langsmithEnabled && this.settings.langsmithApiKey) {
-			if (typeof process !== 'undefined' && process.env) {
-				process.env.LANGSMITH_TRACING = "true";
-				process.env.LANGSMITH_API_KEY = this.settings.langsmithApiKey;
-				process.env.LANGSMITH_PROJECT = this.settings.langsmithProject || "obsidian-agent";
-				process.env.LANGSMITH_ENDPOINT = "https://api.smith.langchain.com";
-				console.log('[Plugin] Langsmith tracing enabled for project:', this.settings.langsmithProject);
-			}
-		} else {
-			if (typeof process !== 'undefined' && process.env) {
-				process.env.LANGSMITH_TRACING = "false";
-			}
-			if (Platform.isMobile && this.settings.langsmithEnabled) {
-				console.log('[Plugin] Langsmith tracing not available on mobile');
-			} else if (!Platform.isMobile) {
-				console.log('[Plugin] Langsmith tracing disabled');
-			}
-		}
 
 		// Update API key in chat view if it exists
 		if (this.chatView) {

@@ -6,9 +6,6 @@ export interface Message {
 
 export interface ClaudeChatSettings {
 	apiKey: string;
-	langsmithApiKey: string;
-	langsmithProject: string;
-	langsmithEnabled: boolean;
 	// Data retention settings
 	retentionDays: number;
 	maxHistorySize: number;
@@ -17,9 +14,6 @@ export interface ClaudeChatSettings {
 
 export const DEFAULT_SETTINGS: ClaudeChatSettings = {
 	apiKey: '',
-	langsmithApiKey: '',
-	langsmithProject: 'obsidian-agent',
-	langsmithEnabled: false,
 	retentionDays: 30,
 	maxHistorySize: 100,
 	enableAutoCleanup: true

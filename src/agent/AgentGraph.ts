@@ -95,13 +95,15 @@ export class ObsidianAgent {
 	constructor(
 		apiKey: string,
 		tools: DynamicStructuredTool[] = [],
-		checkpointer: CheckpointService,
-		langsmithEnabled: boolean = false
+		checkpointer: CheckpointService
 	) {
 		this.apiKey = apiKey;
 		this.tools = tools;
 		this.checkpointer = checkpointer;
-		this.langsmithEnabled = langsmithEnabled;
+		// Detect LangSmith from environment (development only)
+		this.langsmithEnabled = typeof process !== 'undefined' &&
+			process.env?.LANGSMITH_TRACING === "true" &&
+			!!process.env?.LANGSMITH_API_KEY;
 
 		// Validate API key
 		if (!apiKey || !apiKey.startsWith('sk-ant-')) {
@@ -156,7 +158,7 @@ export class ObsidianAgent {
 	 */
 	private convertToAnthropicTools(tools: DynamicStructuredTool[]): AnthropicTool[] {
 		return tools.map((tool) => {
-			const jsonSchema = tool.schema as any;
+			const jsonSchema = tool.schema as Record<string, unknown>;
 
 			// Ensure the schema has the required 'type' field
 			if (!jsonSchema.type) {
@@ -166,7 +168,7 @@ export class ObsidianAgent {
 			return {
 				name: tool.name,
 				description: tool.description,
-				input_schema: jsonSchema,
+				input_schema: jsonSchema as { type: string; [key: string]: any },
 			};
 		});
 	}
@@ -176,7 +178,7 @@ export class ObsidianAgent {
 	 */
 	private parseAnthropicResponse(response: Anthropic.Message): AIMessage {
 		let content = "";
-		const toolCalls: any[] = [];
+		const toolCalls: Array<{ name: string; args: Record<string, unknown>; id: string }> = [];
 
 		for (const block of response.content) {
 			if (block.type === "text") {
@@ -184,7 +186,7 @@ export class ObsidianAgent {
 			} else if (block.type === "tool_use") {
 				toolCalls.push({
 					name: block.name,
-					args: block.input,
+					args: block.input as Record<string, unknown>,
 					id: block.id,
 				});
 			}
@@ -218,6 +220,7 @@ export class ObsidianAgent {
 							max_tokens: AGENT_CONFIG.MAX_TOKENS,
 							system: AGENT_SYSTEM_PROMPT,
 							messages: anthropicMessages,
+							// eslint-disable-next-line @typescript-eslint/no-explicit-any
 							tools: anthropicTools as any, // Cast needed due to Anthropic SDK type complexity
 						});
 					},

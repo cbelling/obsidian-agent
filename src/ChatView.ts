@@ -2,7 +2,7 @@ import { ItemView, WorkspaceLeaf, MarkdownRenderer, Notice } from 'obsidian';
 import { VIEW_TYPE_CHAT, Message } from './types';
 import ClaudeChatPlugin from './main';
 import { ObsidianAgent } from './agent/AgentGraph';
-import { HumanMessage } from "@langchain/core/messages";
+import { HumanMessage, BaseMessage } from "@langchain/core/messages";
 import { createVaultTools } from './vault/VaultTools';
 import { ConversationManager } from './state/ConversationManager';
 
@@ -37,8 +37,7 @@ export class ChatView extends ItemView {
 			this.agent = new ObsidianAgent(
 				plugin.settings.apiKey,
 				vaultTools,
-				plugin.checkpointService,
-				plugin.settings.langsmithEnabled
+				plugin.checkpointService
 			);
 		}
 	}
@@ -79,7 +78,7 @@ export class ChatView extends ItemView {
 			text: '+ New Chat',
 			cls: 'claude-new-chat-button'
 		});
-		this.newChatButton.addEventListener('click', () => this.handleNewChat());
+		this.newChatButton.addEventListener('click', () => void this.handleNewChat());
 
 		// Create thread list container (initially hidden)
 		this.threadListContainer = container.createDiv({ cls: 'claude-thread-list' });
@@ -118,7 +117,7 @@ export class ChatView extends ItemView {
 		this.inputEl.addEventListener('keydown', (e) => {
 			if (e.key === 'Enter' && !e.shiftKey) {
 				e.preventDefault();
-				this.handleSendMessage();
+				void this.handleSendMessage();
 			}
 		});
 
@@ -130,13 +129,13 @@ export class ChatView extends ItemView {
 			text: 'Send',
 			cls: 'mod-cta'
 		});
-		this.sendButton.addEventListener('click', () => this.handleSendMessage());
+		this.sendButton.addEventListener('click', () => void this.handleSendMessage());
 
 		// Create clear button
 		const clearButton = buttonContainer.createEl('button', {
 			text: 'Clear',
 		});
-		clearButton.addEventListener('click', () => this.handleClear());
+		clearButton.addEventListener('click', () => void this.handleClear());
 
 		// Note: Welcome message is displayed by loadConversationHistory() if needed
 	}
@@ -151,8 +150,7 @@ export class ChatView extends ItemView {
 			this.agent = new ObsidianAgent(
 				apiKey,
 				vaultTools,
-				this.plugin.checkpointService,
-				this.plugin.settings.langsmithEnabled
+				this.plugin.checkpointService
 			);
 		}
 	}
@@ -270,7 +268,7 @@ export class ChatView extends ItemView {
 				(chunk: string) => {
 					this.appendToStreamingMessage(chunk);
 				},
-				(toolName: string, toolInput: any) => {
+				(toolName: string, toolInput: Record<string, unknown>) => {
 					console.log(`[ChatView] Tool used: ${toolName}`, toolInput);
 				}
 			);
@@ -281,7 +279,7 @@ export class ChatView extends ItemView {
 			// Sync conversation state (manually construct result for compatibility)
 			this.conversationManager.syncFromAgentResult([
 				new HumanMessage(content),
-				{ _getType: () => 'ai', content: responseContent } as any
+				{ _getType: () => 'ai' as const, content: responseContent } as BaseMessage
 			]);
 
 		} catch (error) {
@@ -469,7 +467,7 @@ export class ChatView extends ItemView {
 			});
 
 			// Click handler to load conversation
-			threadItem.addEventListener('click', () => this.loadThread(conversation.id));
+			threadItem.addEventListener('click', () => void this.loadThread(conversation.id));
 		}
 	}
 
