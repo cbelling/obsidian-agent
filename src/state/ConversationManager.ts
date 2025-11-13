@@ -200,7 +200,7 @@ export class ConversationManager {
 	/**
 	 * Get RunnableConfig for LangGraph agent invocation
 	 */
-	getAgentConfig(metadata?: Record<string, any>): RunnableConfig {
+	getAgentConfig(metadata?: Record<string, unknown>): RunnableConfig {
 		if (!this.currentThreadId) {
 			throw new Error('No active conversation. Create or load a conversation first.');
 		}

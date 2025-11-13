@@ -12,6 +12,7 @@
 
 // Dummy AsyncLocalStorage that will never actually be used
 // The real implementation comes from LangChain's MockAsyncLocalStorage
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export class AsyncLocalStorage<T = any> {
 	private store: T | undefined;
 

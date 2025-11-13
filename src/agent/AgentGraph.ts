@@ -8,6 +8,7 @@ import {
 	HumanMessage,
 } from "@langchain/core/messages";
 import { DynamicStructuredTool } from "@langchain/core/tools";
+import type { RunnableConfig } from "@langchain/core/runnables";
 import { CheckpointService } from "../checkpoint/CheckpointService";
 import { wrapSDK } from "langsmith/wrappers";
 import { traceable } from "langsmith/traceable";
@@ -74,7 +75,7 @@ interface AnthropicTool {
 	description: string;
 	input_schema: {
 		type: string;
-		[key: string]: any;
+		[key: string]: unknown;
 	};
 }
 
@@ -168,7 +169,7 @@ export class ObsidianAgent {
 			return {
 				name: tool.name,
 				description: tool.description,
-				input_schema: jsonSchema as { type: string; [key: string]: any },
+				input_schema: jsonSchema as { type: string; [key: string]: unknown },
 			};
 		});
 	}
@@ -296,7 +297,7 @@ export class ObsidianAgent {
 	/**
 	 * Invoke the agent with a message
 	 */
-	async invoke(input: { messages: BaseMessage[] }, config?: any): Promise<AgentStateType> {
+	async invoke(input: { messages: BaseMessage[] }, config?: RunnableConfig): Promise<AgentStateType> {
 		const result = await this.agent.invoke(input, config);
 		return result as AgentStateType;
 	}
@@ -304,7 +305,7 @@ export class ObsidianAgent {
 	/**
 	 * Stream the agent's response
 	 */
-	async stream(input: { messages: BaseMessage[] }, config?: any) {
+	async stream(input: { messages: BaseMessage[] }, config?: RunnableConfig) {
 		return await this.agent.stream(input, {
 			...config,
 			streamMode: "values",
@@ -322,9 +323,9 @@ export class ObsidianAgent {
 	 */
 	async invokeStream(
 		input: { messages: BaseMessage[] },
-		config: any,
+		config: RunnableConfig,
 		onChunk: (chunk: string) => void,
-		onToolUse?: (toolName: string, toolInput: any) => void
+		onToolUse?: (toolName: string, toolInput: Record<string, unknown>) => void
 	): Promise<string> {
 		try {
 			// Apply rate limiting
@@ -351,17 +352,18 @@ export class ObsidianAgent {
 			const anthropicTools = this.convertToAnthropicTools(this.tools);
 
 			let fullResponse = '';
-			const currentToolUses: any[] = [];
+			const currentToolUses: Array<{ id: string; name: string; input: Record<string, unknown> }> = [];
 			let requiresToolExecution = false;
 
 			// Stream from Anthropic API
 			const stream = await RetryHandler.withRetry(
 				async () => {
-					return await this.anthropic.messages.stream({
+					return this.anthropic.messages.stream({
 						model: AGENT_CONFIG.MODEL,
 						max_tokens: AGENT_CONFIG.MAX_TOKENS,
 						system: AGENT_SYSTEM_PROMPT,
 						messages: anthropicMessages,
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any
 						tools: anthropicTools as any,
 					});
 				},

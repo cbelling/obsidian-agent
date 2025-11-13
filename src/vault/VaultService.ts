@@ -17,7 +17,7 @@ export class VaultService {
 	private fileContentCache: Cache<string>;
 	private fileSearchCache: Cache<PaginatedResults<FileSearchResult>>;
 	private contentSearchCache: Cache<PaginatedResults<ContentSearchResult>>;
-	private metadataCache: Cache<any>;
+	private metadataCache: Cache<Record<string, unknown>>;
 
 	constructor(app: App) {
 		this.app = app;
@@ -26,7 +26,7 @@ export class VaultService {
 		this.fileContentCache = new Cache<string>(60000); // 1 minute
 		this.fileSearchCache = new Cache<PaginatedResults<FileSearchResult>>(30000); // 30 seconds
 		this.contentSearchCache = new Cache<PaginatedResults<ContentSearchResult>>(30000); // 30 seconds
-		this.metadataCache = new Cache<any>(60000); // 1 minute
+		this.metadataCache = new Cache<Record<string, unknown>>(60000); // 1 minute
 
 		// Prune expired entries every 5 minutes
 		setInterval(() => {
@@ -54,7 +54,7 @@ export class VaultService {
 		fileContent: ReturnType<Cache<string>['stats']>;
 		fileSearch: ReturnType<Cache<PaginatedResults<FileSearchResult>>['stats']>;
 		contentSearch: ReturnType<Cache<PaginatedResults<ContentSearchResult>>['stats']>;
-		metadata: ReturnType<Cache<any>['stats']>;
+		metadata: ReturnType<Cache<Record<string, unknown>>['stats']>;
 	} {
 		return {
 			fileContent: this.fileContentCache.stats(),
@@ -335,7 +335,7 @@ export class VaultService {
 	 * @returns Object with metadata
 	 */
 	async getFileMetadata(path: string): Promise<{
-		frontmatter: Record<string, any> | null;
+		frontmatter: Record<string, unknown> | null;
 		stats: { created: number; modified: number; size: number };
 		tags: string[];
 	}> {
