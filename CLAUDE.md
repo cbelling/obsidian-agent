@@ -52,6 +52,23 @@ npm run lint
 npm run lint:fix
 ```
 
+### LangSmith Tracing (Development)
+
+Enable tracing to debug agent behavior:
+
+```bash
+# One-time setup: Copy example and add your API key
+cp .env.example .env.local
+# Edit .env.local and add your LangSmith API key from https://smith.langchain.com
+
+# Launch Obsidian with tracing enabled
+./dev-obsidian.sh
+
+# View traces at: https://smith.langchain.com
+```
+
+See `LANGSMITH_SETUP.md` for detailed setup or `docs/development/LANGSMITH_ENVIRONMENT_SETUP.md` for troubleshooting.
+
 ### Deployment
 After building, copy these files to your Obsidian test vault:
 ```
