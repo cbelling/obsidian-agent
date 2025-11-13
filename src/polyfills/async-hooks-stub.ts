@@ -16,6 +16,17 @@
 export class AsyncLocalStorage<T = any> {
 	private store: T | undefined;
 
+	/**
+	 * Static snapshot method used by LangSmith's tracing helpers.
+	 * Returns a function that simply executes the provided callback immediately,
+	 * which is sufficient for environments without true async context cloning.
+	 */
+	static snapshot() {
+		return function runInSnapshot<T>(callback: () => T): T {
+			return callback();
+		};
+	}
+
 	getStore(): T | undefined {
 		return this.store;
 	}
@@ -31,6 +42,11 @@ export class AsyncLocalStorage<T = any> {
 
 	enterWith(store: T): void {
 		this.store = store;
+	}
+
+	// Add snapshot method for newer LangChain versions
+	snapshot(): { store: T | undefined } {
+		return { store: this.store };
 	}
 }
 

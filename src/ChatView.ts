@@ -1,13 +1,14 @@
 import { ItemView, WorkspaceLeaf, MarkdownRenderer, Notice } from 'obsidian';
 import { VIEW_TYPE_CHAT, Message } from './types';
-import ClaudeChatPlugin from './main';
-import { ObsidianAgent } from './agent/AgentGraph';
+import type ClaudeChatPlugin from './main';
+import type { ObsidianAgent } from './agent/AgentGraph';
 import { HumanMessage, BaseMessage } from "@langchain/core/messages";
 import { createVaultTools } from './vault/VaultTools';
 import { ConversationManager } from './state/ConversationManager';
 
 export class ChatView extends ItemView {
 	private agent: ObsidianAgent | null = null;
+	private agentInitPromise: Promise<void> | null = null;
 	private conversationManager: ConversationManager | null = null;
 	private plugin: ClaudeChatPlugin;
 	private messagesContainer: HTMLElement | null = null;
@@ -31,14 +32,51 @@ export class ChatView extends ItemView {
 			this.conversationManager = plugin.conversationManager;
 		}
 
-		// Initialize Agent
-		if (plugin.settings.apiKey && plugin.vaultService && plugin.checkpointService) {
-			const vaultTools = createVaultTools(plugin.vaultService);
-			this.agent = new ObsidianAgent(
-				plugin.settings.apiKey,
-				vaultTools,
-				plugin.checkpointService
-			);
+		// Kick off agent initialization asynchronously
+		void this.ensureAgent();
+	}
+
+	private async ensureAgent(): Promise<void> {
+		if (this.agent) {
+			return;
+		}
+
+		if (this.agentInitPromise) {
+			await this.agentInitPromise;
+			return;
+		}
+
+		if (!this.plugin.settings.apiKey || !this.plugin.vaultService || !this.plugin.checkpointService) {
+			return;
+		}
+
+		const apiKey = this.plugin.settings.apiKey;
+		const vaultService = this.plugin.vaultService;
+		const checkpointService = this.plugin.checkpointService;
+
+		this.agentInitPromise = (async () => {
+			try {
+				const { ObsidianAgent } = await import('./agent/AgentGraph');
+				const vaultTools = createVaultTools(vaultService);
+
+				this.agent = new ObsidianAgent(
+					apiKey,
+					vaultTools,
+					checkpointService
+				);
+
+				console.log('[ChatView] ObsidianAgent initialized');
+			} catch (error) {
+				console.error('[ChatView] Failed to initialize ObsidianAgent:', error);
+				this.agent = null;
+				throw error;
+			}
+		})();
+
+		try {
+			await this.agentInitPromise;
+		} finally {
+			this.agentInitPromise = null;
 		}
 	}
 
@@ -89,6 +127,9 @@ export class ChatView extends ItemView {
 
 		// Create messages container inside chat container
 		this.messagesContainer = this.chatContainer.createDiv({ cls: 'claude-chat-messages' });
+
+		// Ensure agent is ready before loading history
+		await this.ensureAgent();
 
 		// Load existing conversation history
 		await this.loadConversationHistory();
@@ -145,14 +186,17 @@ export class ChatView extends ItemView {
 	}
 
 	updateApiKey(apiKey: string): void {
-		if (this.plugin.vaultService && this.plugin.checkpointService) {
-			const vaultTools = createVaultTools(this.plugin.vaultService);
-			this.agent = new ObsidianAgent(
-				apiKey,
-				vaultTools,
-				this.plugin.checkpointService
-			);
+		if (!this.plugin.vaultService || !this.plugin.checkpointService) {
+			return;
 		}
+
+		this.agent = null;
+
+		// Update settings reference
+		this.plugin.settings.apiKey = apiKey;
+
+		// Re-initialize agent with new API key
+		void this.ensureAgent();
 	}
 
 	private async loadConversationHistory(): Promise<void> {
@@ -241,6 +285,8 @@ export class ChatView extends ItemView {
 		this.setLoading(true);
 
 		try {
+			await this.ensureAgent();
+
 			if (!this.agent) {
 				throw new Error('Agent not initialized');
 			}

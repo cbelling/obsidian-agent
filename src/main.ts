@@ -1,15 +1,23 @@
 import { Plugin, Platform } from 'obsidian';
-import { ChatView } from './ChatView';
 import { ClaudeChatSettingTab } from './settings';
 import { ClaudeChatSettings, DEFAULT_SETTINGS, VIEW_TYPE_CHAT } from './types';
 import { VaultService } from './vault/VaultService';
 import { CheckpointService } from './checkpoint/CheckpointService';
 import { ConversationManager } from './state/ConversationManager';
 import { initializeAsyncLocalStoragePolyfill } from './polyfills/async-hooks';
+import { patchAsyncLocalStorageSnapshot } from './polyfills/async-hooks-runtime-patch';
+import type { ChatView } from './ChatView';
+
+type ChatViewConstructor = typeof import('./ChatView').ChatView;
 
 // CRITICAL: Initialize AsyncLocalStorage polyfill BEFORE any LangChain imports
 // This must happen at module load time, before the plugin class is instantiated
 initializeAsyncLocalStoragePolyfill();
+
+// CRITICAL: Patch AsyncLocalStorage.snapshot for Node's built-in AsyncLocalStorage
+// This allows LangSmith tracing to work in desktop Obsidian (Electron environment)
+// Must happen BEFORE any LangSmith/LangGraph code runs
+patchAsyncLocalStorageSnapshot();
 
 export default class ClaudeChatPlugin extends Plugin {
 	settings: ClaudeChatSettings;
@@ -17,6 +25,7 @@ export default class ClaudeChatPlugin extends Plugin {
 	public vaultService: VaultService | null = null;
 	public checkpointService: CheckpointService | null = null;
 	public conversationManager: ConversationManager | null = null;
+	private ChatViewCtor: ChatViewConstructor | null = null;
 
 	async onload() {
 		console.log('[Plugin] Starting onload...');
@@ -61,6 +70,13 @@ export default class ClaudeChatPlugin extends Plugin {
 			this.conversationManager = new ConversationManager(this.checkpointService);
 			console.log('[Plugin] ConversationManager initialized');
 
+			// Dynamically import ChatView AFTER AsyncLocalStorage patching
+			// This ensures LangSmith modules load only after the runtime shim is applied
+			console.log('[Plugin] Loading ChatView module...');
+			const chatViewModule = await import('./ChatView');
+			this.ChatViewCtor = chatViewModule.ChatView;
+			console.log('[Plugin] ChatView module loaded');
+
 			// Run automatic cleanup if enabled
 			if (this.settings.enableAutoCleanup) {
 				console.log('[Plugin] Running auto cleanup...');
@@ -73,7 +89,10 @@ export default class ClaudeChatPlugin extends Plugin {
 				VIEW_TYPE_CHAT,
 				(leaf) => {
 					console.log('[Plugin] Creating ChatView instance...');
-					this.chatView = new ChatView(leaf, this);
+					if (!this.ChatViewCtor) {
+						throw new Error('ChatView module not loaded');
+					}
+					this.chatView = new this.ChatViewCtor(leaf, this);
 					return this.chatView;
 				}
 			);

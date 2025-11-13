@@ -383,10 +383,14 @@ export class ObsidianAgent {
 					if (event.content_block.type === 'tool_use') {
 						requiresToolExecution = true;
 						const toolUse = event.content_block;
-						currentToolUses.push(toolUse);
+						currentToolUses.push({
+							id: toolUse.id,
+							name: toolUse.name,
+							input: toolUse.input as Record<string, unknown>
+						});
 
 						if (onToolUse) {
-							onToolUse(toolUse.name, toolUse.input);
+							onToolUse(toolUse.name, toolUse.input as Record<string, unknown>);
 						}
 					}
 				} else if (event.type === 'content_block_delta') {
