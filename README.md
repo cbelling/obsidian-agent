@@ -136,7 +136,7 @@ All tools support pagination for large result sets, with intelligent caching for
 
 ## Version History
 
-**v1.1.0** - Current (2025-11-11)
+**v0.0.1** - Current (2025-11-13)
 - ✨ Added streaming responses for real-time feedback
 - 🚀 Implemented pagination for large vaults
 - ⚡ Added intelligent caching system

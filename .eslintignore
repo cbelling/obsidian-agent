@@ -1,7 +1,0 @@
-node_modules/
-coverage/
-dist/
-main.js
-*.config.mjs
-esbuild.config.mjs
-version-bump.mjs
