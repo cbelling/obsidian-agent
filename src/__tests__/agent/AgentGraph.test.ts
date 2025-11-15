@@ -1,6 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { ObsidianAgent } from '@/agent/AgentGraph';
-import { CheckpointService } from '@/checkpoint/CheckpointService';
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 
@@ -14,26 +13,6 @@ import { z } from 'zod';
  * 3. Tool configuration
  */
 describe('ObsidianAgent Integration', () => {
-	/**
-	 * Helper: Create mock checkpoint service
-	 */
-	function createMockCheckpointer(): CheckpointService {
-		const mockAdapter = {
-			exists: vi.fn().mockResolvedValue(false),
-			read: vi.fn().mockResolvedValue('{}'),
-			write: vi.fn().mockResolvedValue(undefined),
-			remove: vi.fn().mockResolvedValue(undefined),
-			rename: vi.fn().mockResolvedValue(undefined),
-			mkdir: vi.fn().mockResolvedValue(undefined),
-			list: vi.fn().mockResolvedValue({ files: [], folders: [] })
-		};
-
-		const mockApp = {
-			vault: { adapter: mockAdapter }
-		};
-
-		return new CheckpointService(mockApp as any, 'test-plugin');
-	}
 
 	/**
 	 * Helper: Create a simple test tool
@@ -59,12 +38,9 @@ describe('ObsidianAgent Integration', () => {
 		 * Test: Valid API key
 		 */
 		it('should create agent with valid API key', () => {
-			const checkpointer = createMockCheckpointer();
 			const agent = new ObsidianAgent(
 				'sk-ant-test-key-12345',
-				[],
-				checkpointer,
-				false
+				[]
 			);
 
 			expect(agent).toBeDefined();
@@ -76,14 +52,10 @@ describe('ObsidianAgent Integration', () => {
 		 * Behavior: Should throw AgentError
 		 */
 		it('should reject invalid API key format', () => {
-			const checkpointer = createMockCheckpointer();
-
 			expect(() => {
 				new ObsidianAgent(
 					'invalid-key',
-					[],
-					checkpointer,
-					false
+					[]
 				);
 			}).toThrow('Invalid API key format');
 		});
@@ -92,14 +64,10 @@ describe('ObsidianAgent Integration', () => {
 		 * Test: Empty API key
 		 */
 		it('should reject empty API key', () => {
-			const checkpointer = createMockCheckpointer();
-
 			expect(() => {
 				new ObsidianAgent(
 					'',
-					[],
-					checkpointer,
-					false
+					[]
 				);
 			}).toThrow('Invalid API key format');
 		});
@@ -108,14 +76,10 @@ describe('ObsidianAgent Integration', () => {
 		 * Test: API key must start with sk-ant-
 		 */
 		it('should require API key to start with sk-ant-', () => {
-			const checkpointer = createMockCheckpointer();
-
 			expect(() => {
 				new ObsidianAgent(
 					'sk-wrong-prefix',
-					[],
-					checkpointer,
-					false
+					[]
 				);
 			}).toThrow('Invalid API key format');
 		});
@@ -126,14 +90,10 @@ describe('ObsidianAgent Integration', () => {
 		 * Behavior: Should gracefully degrade if LangSmith fails
 		 */
 		it('should handle LangSmith initialization failure gracefully', () => {
-			const checkpointer = createMockCheckpointer();
-
 			// This should not throw even if LangSmith is enabled
 			const agentWithLangsmith = new ObsidianAgent(
 				'sk-ant-test-key',
-				[],
-				checkpointer,
-				true // Enable LangSmith (will fail in test environment)
+				[]
 			);
 
 			expect(agentWithLangsmith).toBeDefined();
@@ -143,14 +103,11 @@ describe('ObsidianAgent Integration', () => {
 		 * Test: Agent with tools
 		 */
 		it('should accept tools during initialization', () => {
-			const checkpointer = createMockCheckpointer();
 			const tool = createTestTool('search', 'Search tool');
 
 			const agent = new ObsidianAgent(
 				'sk-ant-test-key',
-				[tool],
-				checkpointer,
-				false
+				[tool]
 			);
 
 			expect(agent).toBeDefined();
@@ -160,7 +117,6 @@ describe('ObsidianAgent Integration', () => {
 		 * Test: Agent with multiple tools
 		 */
 		it('should accept multiple tools', () => {
-			const checkpointer = createMockCheckpointer();
 			const tools = [
 				createTestTool('search', 'Search tool'),
 				createTestTool('read', 'Read tool'),
@@ -169,25 +125,7 @@ describe('ObsidianAgent Integration', () => {
 
 			const agent = new ObsidianAgent(
 				'sk-ant-test-key',
-				tools,
-				checkpointer,
-				false
-			);
-
-			expect(agent).toBeDefined();
-		});
-
-		/**
-		 * Test: Agent with checkpointer
-		 */
-		it('should require checkpointer', () => {
-			const checkpointer = createMockCheckpointer();
-
-			const agent = new ObsidianAgent(
-				'sk-ant-test-key',
-				[],
-				checkpointer,
-				false
+				tools
 			);
 
 			expect(agent).toBeDefined();
@@ -202,12 +140,9 @@ describe('ObsidianAgent Integration', () => {
 		 * Test: Has invoke method
 		 */
 		it('should have invoke method', () => {
-			const checkpointer = createMockCheckpointer();
 			const agent = new ObsidianAgent(
 				'sk-ant-test-key',
-				[],
-				checkpointer,
-				false
+				[]
 			);
 
 			expect(agent.invoke).toBeDefined();
@@ -215,19 +150,16 @@ describe('ObsidianAgent Integration', () => {
 		});
 
 		/**
-		 * Test: Has stream method
+		 * Test: Has invokeStream method
 		 */
-		it('should have stream method', () => {
-			const checkpointer = createMockCheckpointer();
+		it('should have invokeStream method', () => {
 			const agent = new ObsidianAgent(
 				'sk-ant-test-key',
-				[],
-				checkpointer,
-				false
+				[]
 			);
 
-			expect(agent.stream).toBeDefined();
-			expect(typeof agent.stream).toBe('function');
+			expect(agent.invokeStream).toBeDefined();
+			expect(typeof agent.invokeStream).toBe('function');
 		});
 	});
 
@@ -239,12 +171,9 @@ describe('ObsidianAgent Integration', () => {
 		 * Test: Uses correct model
 		 */
 		it('should use Claude Sonnet 4 model', () => {
-			const checkpointer = createMockCheckpointer();
 			const agent = new ObsidianAgent(
 				'sk-ant-test-key',
-				[],
-				checkpointer,
-				false
+				[]
 			);
 
 			// Agent should be created successfully
@@ -256,12 +185,9 @@ describe('ObsidianAgent Integration', () => {
 		 * Test: LangSmith can be disabled
 		 */
 		it('should work with LangSmith disabled', () => {
-			const checkpointer = createMockCheckpointer();
 			const agent = new ObsidianAgent(
 				'sk-ant-test-key',
-				[],
-				checkpointer,
-				false // Explicitly disable
+				[]
 			);
 
 			expect(agent).toBeDefined();
@@ -271,12 +197,9 @@ describe('ObsidianAgent Integration', () => {
 		 * Test: LangSmith can be enabled
 		 */
 		it('should work with LangSmith enabled', () => {
-			const checkpointer = createMockCheckpointer();
 			const agent = new ObsidianAgent(
 				'sk-ant-test-key',
-				[],
-				checkpointer,
-				true // Explicitly enable
+				[]
 			);
 
 			// Should not throw, even if LangSmith isn't configured
