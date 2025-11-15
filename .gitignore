@@ -28,3 +28,10 @@ data.json
 # Plugin runtime data (checkpoints and threads)
 checkpoints/
 threads.json
+
+# Development scripts with API keys
+.env.local
+dev-obsidian.sh
+dev-obsidian.bat
+launch-with-tracing.sh
+launch-with-tracing.bat

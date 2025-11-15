@@ -1,13 +1,14 @@
 import { ItemView, WorkspaceLeaf, MarkdownRenderer, Notice } from 'obsidian';
 import { VIEW_TYPE_CHAT, Message } from './types';
-import ClaudeChatPlugin from './main';
-import { ObsidianAgent } from './agent/AgentGraph';
-import { HumanMessage } from "@langchain/core/messages";
+import type ClaudeChatPlugin from './main';
+import type { ObsidianAgent } from './agent/AgentGraph';
+import { HumanMessage, BaseMessage } from "@langchain/core/messages";
 import { createVaultTools } from './vault/VaultTools';
 import { ConversationManager } from './state/ConversationManager';
 
 export class ChatView extends ItemView {
 	private agent: ObsidianAgent | null = null;
+	private agentInitPromise: Promise<void> | null = null;
 	private conversationManager: ConversationManager | null = null;
 	private plugin: ClaudeChatPlugin;
 	private messagesContainer: HTMLElement | null = null;
@@ -31,15 +32,51 @@ export class ChatView extends ItemView {
 			this.conversationManager = plugin.conversationManager;
 		}
 
-		// Initialize Agent
-		if (plugin.settings.apiKey && plugin.vaultService && plugin.checkpointService) {
-			const vaultTools = createVaultTools(plugin.vaultService);
-			this.agent = new ObsidianAgent(
-				plugin.settings.apiKey,
-				vaultTools,
-				plugin.checkpointService,
-				plugin.settings.langsmithEnabled
-			);
+		// Kick off agent initialization asynchronously
+		void this.ensureAgent();
+	}
+
+	private async ensureAgent(): Promise<void> {
+		if (this.agent) {
+			return;
+		}
+
+		if (this.agentInitPromise) {
+			await this.agentInitPromise;
+			return;
+		}
+
+		if (!this.plugin.settings.apiKey || !this.plugin.vaultService || !this.plugin.checkpointService) {
+			return;
+		}
+
+		const apiKey = this.plugin.settings.apiKey;
+		const vaultService = this.plugin.vaultService;
+		const checkpointService = this.plugin.checkpointService;
+
+		this.agentInitPromise = (async () => {
+			try {
+				const { ObsidianAgent } = await import('./agent/AgentGraph');
+				const vaultTools = createVaultTools(vaultService);
+
+				this.agent = new ObsidianAgent(
+					apiKey,
+					vaultTools,
+					checkpointService
+				);
+
+				console.log('[ChatView] ObsidianAgent initialized');
+			} catch (error) {
+				console.error('[ChatView] Failed to initialize ObsidianAgent:', error);
+				this.agent = null;
+				throw error;
+			}
+		})();
+
+		try {
+			await this.agentInitPromise;
+		} finally {
+			this.agentInitPromise = null;
 		}
 	}
 
@@ -79,7 +116,7 @@ export class ChatView extends ItemView {
 			text: '+ New Chat',
 			cls: 'claude-new-chat-button'
 		});
-		this.newChatButton.addEventListener('click', () => this.handleNewChat());
+		this.newChatButton.addEventListener('click', () => void this.handleNewChat());
 
 		// Create thread list container (initially hidden)
 		this.threadListContainer = container.createDiv({ cls: 'claude-thread-list' });
@@ -90,6 +127,9 @@ export class ChatView extends ItemView {
 
 		// Create messages container inside chat container
 		this.messagesContainer = this.chatContainer.createDiv({ cls: 'claude-chat-messages' });
+
+		// Ensure agent is ready before loading history
+		await this.ensureAgent();
 
 		// Load existing conversation history
 		await this.loadConversationHistory();
@@ -118,7 +158,7 @@ export class ChatView extends ItemView {
 		this.inputEl.addEventListener('keydown', (e) => {
 			if (e.key === 'Enter' && !e.shiftKey) {
 				e.preventDefault();
-				this.handleSendMessage();
+				void this.handleSendMessage();
 			}
 		});
 
@@ -130,13 +170,13 @@ export class ChatView extends ItemView {
 			text: 'Send',
 			cls: 'mod-cta'
 		});
-		this.sendButton.addEventListener('click', () => this.handleSendMessage());
+		this.sendButton.addEventListener('click', () => void this.handleSendMessage());
 
 		// Create clear button
 		const clearButton = buttonContainer.createEl('button', {
 			text: 'Clear',
 		});
-		clearButton.addEventListener('click', () => this.handleClear());
+		clearButton.addEventListener('click', () => void this.handleClear());
 
 		// Note: Welcome message is displayed by loadConversationHistory() if needed
 	}
@@ -146,15 +186,17 @@ export class ChatView extends ItemView {
 	}
 
 	updateApiKey(apiKey: string): void {
-		if (this.plugin.vaultService && this.plugin.checkpointService) {
-			const vaultTools = createVaultTools(this.plugin.vaultService);
-			this.agent = new ObsidianAgent(
-				apiKey,
-				vaultTools,
-				this.plugin.checkpointService,
-				this.plugin.settings.langsmithEnabled
-			);
+		if (!this.plugin.vaultService || !this.plugin.checkpointService) {
+			return;
 		}
+
+		this.agent = null;
+
+		// Update settings reference
+		this.plugin.settings.apiKey = apiKey;
+
+		// Re-initialize agent with new API key
+		void this.ensureAgent();
 	}
 
 	private async loadConversationHistory(): Promise<void> {
@@ -243,6 +285,8 @@ export class ChatView extends ItemView {
 		this.setLoading(true);
 
 		try {
+			await this.ensureAgent();
+
 			if (!this.agent) {
 				throw new Error('Agent not initialized');
 			}
@@ -270,7 +314,7 @@ export class ChatView extends ItemView {
 				(chunk: string) => {
 					this.appendToStreamingMessage(chunk);
 				},
-				(toolName: string, toolInput: any) => {
+				(toolName: string, toolInput: Record<string, unknown>) => {
 					console.log(`[ChatView] Tool used: ${toolName}`, toolInput);
 				}
 			);
@@ -281,7 +325,7 @@ export class ChatView extends ItemView {
 			// Sync conversation state (manually construct result for compatibility)
 			this.conversationManager.syncFromAgentResult([
 				new HumanMessage(content),
-				{ _getType: () => 'ai', content: responseContent } as any
+				{ _getType: () => 'ai' as const, content: responseContent } as BaseMessage
 			]);
 
 		} catch (error) {
@@ -469,7 +513,7 @@ export class ChatView extends ItemView {
 			});
 
 			// Click handler to load conversation
-			threadItem.addEventListener('click', () => this.loadThread(conversation.id));
+			threadItem.addEventListener('click', () => void this.loadThread(conversation.id));
 		}
 	}
 

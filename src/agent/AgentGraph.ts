@@ -8,6 +8,7 @@ import {
 	HumanMessage,
 } from "@langchain/core/messages";
 import { DynamicStructuredTool } from "@langchain/core/tools";
+import type { RunnableConfig } from "@langchain/core/runnables";
 import { CheckpointService } from "../checkpoint/CheckpointService";
 import { wrapSDK } from "langsmith/wrappers";
 import { traceable } from "langsmith/traceable";
@@ -74,7 +75,7 @@ interface AnthropicTool {
 	description: string;
 	input_schema: {
 		type: string;
-		[key: string]: any;
+		[key: string]: unknown;
 	};
 }
 
@@ -95,13 +96,15 @@ export class ObsidianAgent {
 	constructor(
 		apiKey: string,
 		tools: DynamicStructuredTool[] = [],
-		checkpointer: CheckpointService,
-		langsmithEnabled: boolean = false
+		checkpointer: CheckpointService
 	) {
 		this.apiKey = apiKey;
 		this.tools = tools;
 		this.checkpointer = checkpointer;
-		this.langsmithEnabled = langsmithEnabled;
+		// Detect LangSmith from environment (development only)
+		this.langsmithEnabled = typeof process !== 'undefined' &&
+			process.env?.LANGSMITH_TRACING === "true" &&
+			!!process.env?.LANGSMITH_API_KEY;
 
 		// Validate API key
 		if (!apiKey || !apiKey.startsWith('sk-ant-')) {
@@ -156,7 +159,7 @@ export class ObsidianAgent {
 	 */
 	private convertToAnthropicTools(tools: DynamicStructuredTool[]): AnthropicTool[] {
 		return tools.map((tool) => {
-			const jsonSchema = tool.schema as any;
+			const jsonSchema = tool.schema as Record<string, unknown>;
 
 			// Ensure the schema has the required 'type' field
 			if (!jsonSchema.type) {
@@ -166,7 +169,7 @@ export class ObsidianAgent {
 			return {
 				name: tool.name,
 				description: tool.description,
-				input_schema: jsonSchema,
+				input_schema: jsonSchema as { type: string; [key: string]: unknown },
 			};
 		});
 	}
@@ -176,7 +179,7 @@ export class ObsidianAgent {
 	 */
 	private parseAnthropicResponse(response: Anthropic.Message): AIMessage {
 		let content = "";
-		const toolCalls: any[] = [];
+		const toolCalls: Array<{ name: string; args: Record<string, unknown>; id: string }> = [];
 
 		for (const block of response.content) {
 			if (block.type === "text") {
@@ -184,7 +187,7 @@ export class ObsidianAgent {
 			} else if (block.type === "tool_use") {
 				toolCalls.push({
 					name: block.name,
-					args: block.input,
+					args: block.input as Record<string, unknown>,
 					id: block.id,
 				});
 			}
@@ -218,6 +221,7 @@ export class ObsidianAgent {
 							max_tokens: AGENT_CONFIG.MAX_TOKENS,
 							system: AGENT_SYSTEM_PROMPT,
 							messages: anthropicMessages,
+							// eslint-disable-next-line @typescript-eslint/no-explicit-any
 							tools: anthropicTools as any, // Cast needed due to Anthropic SDK type complexity
 						});
 					},
@@ -293,7 +297,7 @@ export class ObsidianAgent {
 	/**
 	 * Invoke the agent with a message
 	 */
-	async invoke(input: { messages: BaseMessage[] }, config?: any): Promise<AgentStateType> {
+	async invoke(input: { messages: BaseMessage[] }, config?: RunnableConfig): Promise<AgentStateType> {
 		const result = await this.agent.invoke(input, config);
 		return result as AgentStateType;
 	}
@@ -301,7 +305,7 @@ export class ObsidianAgent {
 	/**
 	 * Stream the agent's response
 	 */
-	async stream(input: { messages: BaseMessage[] }, config?: any) {
+	async stream(input: { messages: BaseMessage[] }, config?: RunnableConfig) {
 		return await this.agent.stream(input, {
 			...config,
 			streamMode: "values",
@@ -319,9 +323,9 @@ export class ObsidianAgent {
 	 */
 	async invokeStream(
 		input: { messages: BaseMessage[] },
-		config: any,
+		config: RunnableConfig,
 		onChunk: (chunk: string) => void,
-		onToolUse?: (toolName: string, toolInput: any) => void
+		onToolUse?: (toolName: string, toolInput: Record<string, unknown>) => void
 	): Promise<string> {
 		try {
 			// Apply rate limiting
@@ -348,17 +352,18 @@ export class ObsidianAgent {
 			const anthropicTools = this.convertToAnthropicTools(this.tools);
 
 			let fullResponse = '';
-			const currentToolUses: any[] = [];
+			const currentToolUses: Array<{ id: string; name: string; input: Record<string, unknown> }> = [];
 			let requiresToolExecution = false;
 
 			// Stream from Anthropic API
 			const stream = await RetryHandler.withRetry(
 				async () => {
-					return await this.anthropic.messages.stream({
+					return this.anthropic.messages.stream({
 						model: AGENT_CONFIG.MODEL,
 						max_tokens: AGENT_CONFIG.MAX_TOKENS,
 						system: AGENT_SYSTEM_PROMPT,
 						messages: anthropicMessages,
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any
 						tools: anthropicTools as any,
 					});
 				},
@@ -378,10 +383,14 @@ export class ObsidianAgent {
 					if (event.content_block.type === 'tool_use') {
 						requiresToolExecution = true;
 						const toolUse = event.content_block;
-						currentToolUses.push(toolUse);
+						currentToolUses.push({
+							id: toolUse.id,
+							name: toolUse.name,
+							input: toolUse.input as Record<string, unknown>
+						});
 
 						if (onToolUse) {
-							onToolUse(toolUse.name, toolUse.input);
+							onToolUse(toolUse.name, toolUse.input as Record<string, unknown>);
 						}
 					}
 				} else if (event.type === 'content_block_delta') {

@@ -42,8 +42,8 @@ export class CheckpointService extends BaseCheckpointSaver {
 		super();
 		this.app = app;
 		this.basePath = `.obsidian/plugins/${pluginId}`;
-		this.ensureDirectories();
-		this.loadThreadsMetadata();
+		void this.ensureDirectories();
+		void this.loadThreadsMetadata();
 	}
 
 	/**

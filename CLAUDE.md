@@ -52,6 +52,23 @@ npm run lint
 npm run lint:fix
 ```
 
+### LangSmith Tracing (Development)
+
+Enable tracing to debug agent behavior:
+
+```bash
+# One-time setup: Copy example and add your API key
+cp .env.example .env.local
+# Edit .env.local and add your LangSmith API key from https://smith.langchain.com
+
+# Launch Obsidian with tracing enabled
+./dev-obsidian.sh
+
+# View traces at: https://smith.langchain.com
+```
+
+See `LANGSMITH_SETUP.md` for detailed setup or `docs/development/LANGSMITH_ENVIRONMENT_SETUP.md` for troubleshooting.
+
 ### Deployment
 After building, copy these files to your Obsidian test vault:
 ```
@@ -292,20 +309,29 @@ npm run test:ui
 - Clean up resources in afterEach hooks
 - Use `beforeEach` for test setup to ensure test isolation
 
-### Langsmith Tracing (Optional)
+### Langsmith Tracing (Development Only)
+
+**Important:** LangSmith is a development-only feature, not user-facing.
 
 **Configuration:**
-- Enable in plugin settings (desktop only, not available on mobile)
-- Set Langsmith API key and project name
-- Tracing applies to Anthropic SDK calls and agent execution
+- Set via environment variables before launching Obsidian
+- `LANGSMITH_API_KEY` - Required to enable tracing
+- `LANGSMITH_PROJECT` - Optional (default: "obsidian-agent-dev")
+- Desktop only (mobile doesn't support process.env)
 
-**Environment variables set by plugin:**
+**Setup:**
+See `docs/development/LANGSMITH_ENVIRONMENT_SETUP.md` for platform-specific instructions.
+
+**Environment variables set at startup:**
 ```
-LANGSMITH_TRACING=true
-LANGSMITH_API_KEY=<user-configured>
-LANGSMITH_PROJECT=<user-configured>
+LANGSMITH_TRACING=true  # When LANGSMITH_API_KEY is present
+LANGSMITH_API_KEY=<from environment>
+LANGSMITH_PROJECT=<from environment or default>
 LANGSMITH_ENDPOINT=https://api.smith.langchain.com
 ```
+
+**Usage:**
+See `docs/development/LANGSMITH_DEBUGGING.md` for how to use traces for debugging (to be created in future).
 
 ## Important Constraints and Limitations
 

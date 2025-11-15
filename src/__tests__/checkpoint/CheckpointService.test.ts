@@ -1,7 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { CheckpointService, ThreadMetadata } from '@/checkpoint/CheckpointService';
-import { Checkpoint, CheckpointMetadata } from '@langchain/langgraph-checkpoint';
-import { RunnableConfig } from '@langchain/core/runnables';
+import { CheckpointService, ThreadMetadata, StoredMessage } from '@/checkpoint/CheckpointService';
 
 /**
  * MockAdapter - Simulates Obsidian's file system adapter
@@ -79,7 +77,7 @@ function createMockApp(): any {
 /**
  * CheckpointService Test Suite
  *
- * Tests persistent storage for LangGraph checkpoints.
+ * Tests persistent storage for conversation messages.
  * Follows TDD principles: test behavior, not implementation.
  */
 describe('CheckpointService', () => {
@@ -87,10 +85,12 @@ describe('CheckpointService', () => {
 	let mockApp: any;
 	let adapter: MockAdapter;
 
-	beforeEach(() => {
+	beforeEach(async () => {
 		mockApp = createMockApp();
 		adapter = mockApp.vault.adapter;
 		checkpointService = new CheckpointService(mockApp, 'test-plugin');
+		// Wait for async initialization
+		await new Promise(resolve => setTimeout(resolve, 10));
 	});
 
 	afterEach(() => {
@@ -189,27 +189,18 @@ describe('CheckpointService', () => {
 		/**
 		 * Test: Delete thread
 		 *
-		 * Behavior: Should remove thread metadata and all checkpoints
+		 * Behavior: Should remove thread metadata and conversation file
 		 */
-		it('should delete thread and its checkpoints', async () => {
+		it('should delete thread and its messages', async () => {
 			const threadId = await checkpointService.createThread('Test Thread');
 
-			// Add a checkpoint
-			const checkpoint: Checkpoint = {
-				v: 1,
-				id: 'checkpoint-1',
-				ts: Date.now().toString(),
-				channel_values: { messages: ['test'] },
-				channel_versions: {},
-				versions_seen: {},
-				pending_sends: []
-			};
+			// Add messages
+			const messages: StoredMessage[] = [
+				{ role: 'human', content: 'Hello' },
+				{ role: 'ai', content: 'Hi there!' }
+			];
 
-			const config: RunnableConfig = {
-				configurable: { thread_id: threadId }
-			};
-
-			await checkpointService.putTuple(config, checkpoint, { source: 'update', step: 0, writes: null, parents: {} });
+			await checkpointService.saveMessages(threadId, messages);
 
 			// Delete thread
 			await checkpointService.deleteThread(threadId);
@@ -217,62 +208,37 @@ describe('CheckpointService', () => {
 			// Verify thread is gone
 			expect(checkpointService.getThread(threadId)).toBeUndefined();
 
-			// Verify checkpoint file is removed
-			const checkpointPath = `.obsidian/plugins/test-plugin/checkpoints/${threadId}-checkpoint-1.json`;
-			expect(await adapter.exists(checkpointPath)).toBe(false);
+			// Verify conversation file is removed
+			const conversationPath = `.obsidian/plugins/test-plugin/conversations/${threadId}.json`;
+			expect(await adapter.exists(conversationPath)).toBe(false);
 		});
 	});
 
 	/**
-	 * Test Group: Checkpoint Storage
+	 * Test Group: Message Storage
 	 *
-	 * Tests for saving and retrieving checkpoints.
+	 * Tests for saving and retrieving messages.
 	 */
-	describe('Checkpoint Storage', () => {
+	describe('Message Storage', () => {
 		/**
-		 * Test: Save checkpoint
+		 * Test: Save messages
 		 *
-		 * Behavior: Should serialize and save checkpoint to disk atomically
+		 * Behavior: Should serialize and save messages to disk atomically
 		 */
-		it('should save checkpoint with atomic write', async () => {
+		it('should save messages with atomic write', async () => {
 			const threadId = await checkpointService.createThread('Test');
 
-			const checkpoint: Checkpoint = {
-				v: 1,
-				id: 'checkpoint-1',
-				ts: Date.now().toString(),
-				channel_values: {
-					messages: [
-						{ role: 'user', content: 'Hello' },
-						{ role: 'assistant', content: 'Hi there!' }
-					]
-				},
-				channel_versions: {},
-				versions_seen: {},
-				pending_sends: []
-			};
-
-			const config: RunnableConfig = {
-				configurable: { thread_id: threadId }
-			};
-
-			const metadata: CheckpointMetadata = {
-				source: 'update',
-				step: 1,
-				writes: null,
-				parents: {}
-			};
+			const messages: StoredMessage[] = [
+				{ role: 'human', content: 'Hello' },
+				{ role: 'ai', content: 'Hi there!' }
+			];
 
 			// Act
-			const result = await checkpointService.putTuple(config, checkpoint, metadata);
-
-			// Assert
-			expect(result.configurable?.thread_id).toBe(threadId);
-			expect(result.configurable?.checkpoint_id).toBe('checkpoint-1');
+			await checkpointService.saveMessages(threadId, messages);
 
 			// Verify file was written
-			const checkpointPath = `.obsidian/plugins/test-plugin/checkpoints/${threadId}-checkpoint-1.json`;
-			expect(await adapter.exists(checkpointPath)).toBe(true);
+			const conversationPath = `.obsidian/plugins/test-plugin/conversations/${threadId}.json`;
+			expect(await adapter.exists(conversationPath)).toBe(true);
 
 			// Verify thread metadata was updated
 			const thread = checkpointService.getThread(threadId);
@@ -280,126 +246,73 @@ describe('CheckpointService', () => {
 		});
 
 		/**
-		 * Test: Save checkpoint without thread_id
+		 * Test: Load messages
 		 *
-		 * Behavior: Should throw error
+		 * Behavior: Should retrieve saved messages from disk
 		 */
-		it('should throw error when saving checkpoint without thread_id', async () => {
-			const checkpoint: Checkpoint = {
-				v: 1,
-				id: 'checkpoint-1',
-				ts: Date.now().toString(),
-				channel_values: {},
-				channel_versions: {},
-				versions_seen: {},
-				pending_sends: []
-			};
-
-			const config: RunnableConfig = {
-				configurable: {} // Missing thread_id
-			};
-
-			await expect(
-				checkpointService.putTuple(config, checkpoint, { source: 'update', step: 0, writes: null, parents: {} })
-			).rejects.toThrow('thread_id is required');
-		});
-
-		/**
-		 * Test: Get latest checkpoint
-		 *
-		 * Behavior: Should return most recent checkpoint for thread
-		 */
-		it('should retrieve latest checkpoint', async () => {
+		it('should load saved messages', async () => {
 			const threadId = await checkpointService.createThread('Test');
 
-			// Save multiple checkpoints
-			const checkpoint1: Checkpoint = {
-				v: 1,
-				id: 'checkpoint-1',
-				ts: new Date('2024-01-01').toISOString(),
-				channel_values: { messages: ['message 1'] },
-				channel_versions: {},
-				versions_seen: {},
-				pending_sends: []
-			};
+			const messages: StoredMessage[] = [
+				{ role: 'human', content: 'Hello' },
+				{ role: 'ai', content: 'Hi there!' },
+				{ role: 'human', content: 'How are you?' },
+				{ role: 'ai', content: 'I am doing well, thank you!' }
+			];
 
-			const checkpoint2: Checkpoint = {
-				v: 1,
-				id: 'checkpoint-2',
-				ts: new Date('2024-01-02').toISOString(),
-				channel_values: { messages: ['message 1', 'message 2'] },
-				channel_versions: {},
-				versions_seen: {},
-				pending_sends: []
-			};
-
-			const config: RunnableConfig = {
-				configurable: { thread_id: threadId }
-			};
-
-			await checkpointService.putTuple(config, checkpoint1, { source: 'update', step: 0, writes: null, parents: {} });
-			await checkpointService.putTuple(config, checkpoint2, { source: 'update', step: 1, writes: null, parents: {} });
+			await checkpointService.saveMessages(threadId, messages);
 
 			// Act
-			const tuple = await checkpointService.getTuple(config);
+			const loadedMessages = await checkpointService.loadMessages(threadId);
 
 			// Assert
-			expect(tuple).toBeDefined();
-			expect(tuple?.checkpoint.id).toBe('checkpoint-2'); // Should get latest
-			expect(tuple?.checkpoint.channel_values?.messages).toHaveLength(2);
+			expect(loadedMessages).toHaveLength(4);
+			expect(loadedMessages[0].role).toBe('human');
+			expect(loadedMessages[0].content).toBe('Hello');
+			expect(loadedMessages[3].role).toBe('ai');
+			expect(loadedMessages[3].content).toBe('I am doing well, thank you!');
 		});
 
 		/**
-		 * Test: Get specific checkpoint by ID
+		 * Test: Load messages for non-existent thread
 		 */
-		it('should retrieve specific checkpoint by ID', async () => {
+		it('should return empty array for non-existent thread', async () => {
+			const messages = await checkpointService.loadMessages('nonexistent');
+
+			expect(messages).toEqual([]);
+		});
+
+		/**
+		 * Test: Update messages
+		 *
+		 * Behavior: Should replace existing messages with new ones
+		 */
+		it('should update messages for existing thread', async () => {
 			const threadId = await checkpointService.createThread('Test');
 
-			const checkpoint1: Checkpoint = {
-				v: 1,
-				id: 'checkpoint-1',
-				ts: Date.now().toString(),
-				channel_values: { messages: ['message 1'] },
-				channel_versions: {},
-				versions_seen: {},
-				pending_sends: []
-			};
+			const messages1: StoredMessage[] = [
+				{ role: 'human', content: 'First message' }
+			];
 
-			const checkpoint2: Checkpoint = {
-				v: 1,
-				id: 'checkpoint-2',
-				ts: Date.now().toString(),
-				channel_values: { messages: ['message 1', 'message 2'] },
-				channel_versions: {},
-				versions_seen: {},
-				pending_sends: []
-			};
+			await checkpointService.saveMessages(threadId, messages1);
 
-			const config: RunnableConfig = {
-				configurable: { thread_id: threadId }
-			};
+			const messages2: StoredMessage[] = [
+				{ role: 'human', content: 'First message' },
+				{ role: 'ai', content: 'Second message' }
+			];
 
-			await checkpointService.putTuple(config, checkpoint1, { source: 'update', step: 0, writes: null, parents: {} });
-			await checkpointService.putTuple(config, checkpoint2, { source: 'update', step: 1, writes: null, parents: {} });
+			await checkpointService.saveMessages(threadId, messages2);
 
-			// Get specific checkpoint
-			const tuple = await checkpointService.getTuple({
-				configurable: { thread_id: threadId, checkpoint_id: 'checkpoint-1' }
-			});
+			// Act
+			const loadedMessages = await checkpointService.loadMessages(threadId);
 
-			expect(tuple?.checkpoint.id).toBe('checkpoint-1');
-			expect(tuple?.checkpoint.channel_values?.messages).toHaveLength(1);
-		});
+			// Assert
+			expect(loadedMessages).toHaveLength(2);
+			expect(loadedMessages[1].content).toBe('Second message');
 
-		/**
-		 * Test: Get checkpoint for non-existent thread
-		 */
-		it('should return undefined for non-existent thread', async () => {
-			const tuple = await checkpointService.getTuple({
-				configurable: { thread_id: 'nonexistent' }
-			});
-
-			expect(tuple).toBeUndefined();
+			// Verify message count updated
+			const thread = checkpointService.getThread(threadId);
+			expect(thread?.messageCount).toBe(2);
 		});
 	});
 
@@ -417,25 +330,15 @@ describe('CheckpointService', () => {
 		it('should use temp file for atomic writes', async () => {
 			const threadId = await checkpointService.createThread('Test');
 
-			const checkpoint: Checkpoint = {
-				v: 1,
-				id: 'checkpoint-1',
-				ts: Date.now().toString(),
-				channel_values: { messages: [] },
-				channel_versions: {},
-				versions_seen: {},
-				pending_sends: []
-			};
+			const messages: StoredMessage[] = [
+				{ role: 'human', content: 'Test message' }
+			];
 
 			// Spy on adapter methods
 			const writeSpy = vi.spyOn(adapter, 'write');
 			const renameSpy = vi.spyOn(adapter, 'rename');
 
-			await checkpointService.putTuple(
-				{ configurable: { thread_id: threadId } },
-				checkpoint,
-				{ source: 'update', step: 0, writes: null, parents: {} }
-			);
+			await checkpointService.saveMessages(threadId, messages);
 
 			// Verify temp file was used
 			expect(writeSpy).toHaveBeenCalledWith(
@@ -451,86 +354,11 @@ describe('CheckpointService', () => {
 	/**
 	 * Test Group: History Management
 	 *
-	 * Tests for trimming and pruning old data
+	 * Tests for pruning old data
 	 */
 	describe('History Management', () => {
 		/**
-		 * Test: Trim conversation history
-		 *
-		 * Behavior: Should keep only most recent N messages
-		 */
-		it('should trim conversation history to max size', async () => {
-			const threadId = await checkpointService.createThread('Test');
-
-			// Create checkpoint with many messages
-			const messages = Array.from({ length: 100 }, (_, i) => ({
-				role: i % 2 === 0 ? 'user' : 'assistant',
-				content: `Message ${i}`
-			}));
-
-			const checkpoint: Checkpoint = {
-				v: 1,
-				id: 'checkpoint-1',
-				ts: Date.now().toString(),
-				channel_values: { messages },
-				channel_versions: {},
-				versions_seen: {},
-				pending_sends: []
-			};
-
-			await checkpointService.putTuple(
-				{ configurable: { thread_id: threadId } },
-				checkpoint,
-				{ source: 'update', step: 0, writes: null, parents: {} }
-			);
-
-			// Trim to 20 messages
-			const wasTrimmed = await checkpointService.trimConversationHistory(threadId, 20);
-
-			expect(wasTrimmed).toBe(true);
-
-			// Verify trimmed checkpoint
-			const tuple = await checkpointService.getTuple({
-				configurable: { thread_id: threadId }
-			});
-
-			expect(tuple?.checkpoint.channel_values?.messages).toHaveLength(20);
-		});
-
-		/**
-		 * Test: Don't trim if already under limit
-		 */
-		it('should not trim if history is under max size', async () => {
-			const threadId = await checkpointService.createThread('Test');
-
-			const checkpoint: Checkpoint = {
-				v: 1,
-				id: 'checkpoint-1',
-				ts: Date.now().toString(),
-				channel_values: {
-					messages: [
-						{ role: 'user', content: 'Hello' },
-						{ role: 'assistant', content: 'Hi' }
-					]
-				},
-				channel_versions: {},
-				versions_seen: {},
-				pending_sends: []
-			};
-
-			await checkpointService.putTuple(
-				{ configurable: { thread_id: threadId } },
-				checkpoint,
-				{ source: 'update', step: 0, writes: null, parents: {} }
-			);
-
-			const wasTrimmed = await checkpointService.trimConversationHistory(threadId, 100);
-
-			expect(wasTrimmed).toBe(false);
-		});
-
-		/**
-		 * Test: Prune old checkpoints
+		 * Test: Prune old conversations
 		 *
 		 * Behavior: Should delete threads older than retention period
 		 */
@@ -547,7 +375,7 @@ describe('CheckpointService', () => {
 			const newThreadId = await checkpointService.createThread('New Thread');
 
 			// Prune threads older than 30 days
-			const deletedCount = await checkpointService.pruneOldCheckpoints(30);
+			const deletedCount = await checkpointService.pruneOldConversations(30);
 
 			expect(deletedCount).toBe(1);
 			expect(checkpointService.getThread(oldThreadId)).toBeUndefined();
@@ -565,36 +393,26 @@ describe('CheckpointService', () => {
 		 * Test: Get storage stats
 		 */
 		it('should return storage statistics', async () => {
-			// Create threads with checkpoints
+			// Create threads with messages
 			const thread1 = await checkpointService.createThread('Thread 1');
 			const thread2 = await checkpointService.createThread('Thread 2');
 
-			const checkpoint: Checkpoint = {
-				v: 1,
-				id: 'checkpoint-1',
-				ts: Date.now().toString(),
-				channel_values: { messages: [] },
-				channel_versions: {},
-				versions_seen: {},
-				pending_sends: []
-			};
+			const messages1: StoredMessage[] = [
+				{ role: 'human', content: 'Hello' },
+				{ role: 'ai', content: 'Hi!' }
+			];
 
-			await checkpointService.putTuple(
-				{ configurable: { thread_id: thread1 } },
-				checkpoint,
-				{ source: 'update', step: 0, writes: null, parents: {} }
-			);
+			const messages2: StoredMessage[] = [
+				{ role: 'human', content: 'Test' }
+			];
 
-			await checkpointService.putTuple(
-				{ configurable: { thread_id: thread2 } },
-				checkpoint,
-				{ source: 'update', step: 0, writes: null, parents: {} }
-			);
+			await checkpointService.saveMessages(thread1, messages1);
+			await checkpointService.saveMessages(thread2, messages2);
 
 			const stats = await checkpointService.getStorageStats();
 
 			expect(stats.totalThreads).toBe(2);
-			expect(stats.totalCheckpoints).toBe(2);
+			expect(stats.totalMessages).toBe(3);
 			expect(stats.oldestThread).toBeDefined();
 			expect(stats.newestThread).toBeDefined();
 		});
@@ -606,7 +424,7 @@ describe('CheckpointService', () => {
 			const stats = await checkpointService.getStorageStats();
 
 			expect(stats.totalThreads).toBe(0);
-			expect(stats.totalCheckpoints).toBe(0);
+			expect(stats.totalMessages).toBe(0);
 			expect(stats.oldestThread).toBeNull();
 			expect(stats.newestThread).toBeNull();
 		});
@@ -619,21 +437,19 @@ describe('CheckpointService', () => {
 	 */
 	describe('Error Handling', () => {
 		/**
-		 * Test: Handle corrupted checkpoint file
+		 * Test: Handle corrupted conversation file
 		 */
-		it('should handle corrupted checkpoint files gracefully', async () => {
+		it('should handle corrupted conversation files gracefully', async () => {
 			const threadId = await checkpointService.createThread('Test');
 
-			// Write corrupted checkpoint file
-			const checkpointPath = `.obsidian/plugins/test-plugin/checkpoints/${threadId}-corrupted.json`;
-			await adapter.write(checkpointPath, 'invalid json {{{');
+			// Write corrupted conversation file
+			const conversationPath = `.obsidian/plugins/test-plugin/conversations/${threadId}.json`;
+			await adapter.write(conversationPath, 'invalid json {{{');
 
-			// Should not throw, just return empty list
-			const tuple = await checkpointService.getTuple({
-				configurable: { thread_id: threadId }
-			});
+			// Should not throw, just return empty array
+			const messages = await checkpointService.loadMessages(threadId);
 
-			expect(tuple).toBeUndefined();
+			expect(messages).toEqual([]);
 		});
 
 		/**
@@ -643,25 +459,18 @@ describe('CheckpointService', () => {
 			// Fresh service should create directories
 			const newService = new CheckpointService(mockApp, 'new-plugin');
 
-			// Should be able to save checkpoint
+			// Wait for async directory creation
+			await new Promise(resolve => setTimeout(resolve, 10));
+
+			// Should be able to save messages
 			const threadId = await newService.createThread('Test');
-			const checkpoint: Checkpoint = {
-				v: 1,
-				id: 'checkpoint-1',
-				ts: Date.now().toString(),
-				channel_values: {},
-				channel_versions: {},
-				versions_seen: {},
-				pending_sends: []
-			};
+			const messages: StoredMessage[] = [
+				{ role: 'human', content: 'Test' }
+			];
 
 			await expect(
-				newService.putTuple(
-					{ configurable: { thread_id: threadId } },
-					checkpoint,
-					{ source: 'update', step: 0, writes: null, parents: {} }
-				)
-			).resolves.toBeDefined();
+				newService.saveMessages(threadId, messages)
+			).resolves.toBeUndefined();
 		});
 	});
 });

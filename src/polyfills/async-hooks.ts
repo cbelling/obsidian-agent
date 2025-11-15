@@ -17,18 +17,14 @@ import {
  * Must be called before any LangChain/LangGraph code runs
  */
 export function initializeAsyncLocalStoragePolyfill(): void {
-	if (Platform.isMobile) {
-		console.log('[Polyfill] Initializing MockAsyncLocalStorage for mobile platform');
+	// Always use MockAsyncLocalStorage in Obsidian
+	// Obsidian doesn't have full Node.js async_hooks support, even on desktop
+	console.log('[Polyfill] Initializing MockAsyncLocalStorage for Obsidian');
 
-		// Use LangChain's built-in mock implementation
-		AsyncLocalStorageProviderSingleton.initializeGlobalInstance(
-			new MockAsyncLocalStorage()
-		);
+	// Use LangChain's built-in mock implementation
+	AsyncLocalStorageProviderSingleton.initializeGlobalInstance(
+		new MockAsyncLocalStorage()
+	);
 
-		console.log('[Polyfill] MockAsyncLocalStorage initialized successfully');
-	} else {
-		// On desktop, use the real AsyncLocalStorage from node:async_hooks
-		// This is automatically initialized by LangChain when it imports
-		console.log('[Polyfill] Using native AsyncLocalStorage on desktop platform');
-	}
+	console.log('[Polyfill] MockAsyncLocalStorage initialized successfully');
 }
